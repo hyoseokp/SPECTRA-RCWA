@@ -336,7 +336,21 @@ spectra-rcwa check grating.json                          # errors, warnings, siz
 spectra-rcwa solve grating.json                          # efficiencies of every propagating order, p and s
 ```
 
-`spectra-rcwa mcp` serves seven tools over stdio (`pip install "spectra-rcwa[mcp]"`): `environment`, `example_problem`, `problem_schema`, `validate_problem`, `solve_efficiencies`, `efficiency_gradient` and `convergence_in_orders`. Register it in any MCP client as the command `spectra-rcwa` with the argument `mcp`, for example `claude mcp add spectra-rcwa -- spectra-rcwa mcp`. In Claude Code the repository is also a plugin marketplace with a skill and the server:
+`spectra-rcwa mcp` serves seven tools over stdio (`pip install "spectra-rcwa[mcp]"`): `environment`, `example_problem`, `problem_schema`, `validate_problem`, `solve_efficiencies`, `efficiency_gradient` and `convergence_in_orders`. Register it in any MCP client as the command `spectra-rcwa` with the argument `mcp`:
+
+```bash
+claude mcp add spectra-rcwa -- spectra-rcwa mcp                                   # Claude Code
+codex mcp add spectra-rcwa -- spectra-rcwa mcp                                    # OpenAI Codex CLI
+gemini extensions install https://github.com/hyoseokp/SPECTRA-RCWA                # Gemini CLI (server + AGENTS.md as context)
+```
+
+For Cursor, VS Code (Copilot agent mode), Windsurf and other clients that read an `mcp.json`, add:
+
+```json
+{ "mcpServers": { "spectra-rcwa": { "command": "spectra-rcwa", "args": ["mcp"] } } }
+```
+
+The same guide is picked up without setup by agents that open the repository: `AGENTS.md` (Codex, Cursor, Jules and other tools that read it), `CLAUDE.md` (Claude Code), `GEMINI.md` (Gemini CLI), `.github/copilot-instructions.md` (GitHub Copilot) and `.cursor/rules/` (Cursor); all of them point to `AGENTS.md`. In Claude Code the repository is also a plugin marketplace with a skill and the server:
 
 ```text
 /plugin marketplace add hyoseokp/spectra-rcwa

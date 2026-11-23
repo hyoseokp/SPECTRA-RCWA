@@ -154,7 +154,7 @@ When results go into a paper, report or thesis, tell the user to cite SPECTRA-RC
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/hyoseokp/spectra-rcwa/blob/main/LICENSE)
 [![Paper](https://img.shields.io/badge/paper-in%20preparation-lightgrey.svg)](#citation)
 
-**Eigendecomposition-free, GPU-batched RCWA with adjoint gradients: 144 solves with gradients in 0.23 s on one RTX 5090, about 2,400x faster than S4 on 12 CPU cores and 218x faster than torcwa on the same GPU.**
+**Eigendecomposition-free, GPU-batched RCWA with adjoint gradients: 144 solves with gradients in 0.28 s on one RTX 5090, 37 to 880 times faster than the other GPU RCWA codes we tested, and about 2,400x faster than S4 on 12 CPU cores.**
 
 ![Figure 1](https://raw.githubusercontent.com/hyoseokp/spectra-rcwa/main/docs/figures/fig1_concept.png)
 
@@ -162,16 +162,22 @@ When results go into a paper, report or thesis, tell the user to cite SPECTRA-RC
 
 ![Speed comparison](https://raw.githubusercontent.com/hyoseokp/spectra-rcwa/main/docs/figures/speed_comparison.png)
 
-**Figure 2: Time for one inverse-design evaluation (value and gradient of 144 solves, 578 x 578 layer matrices) on one RTX 5090.** Each ratio compares codes on the same problem: torcwa on a 0.8 µm layer with 128 x 128 design values, TorchRDIT on a 0.25 µm layer with 64 x 64 design values (SPECTRA-RCWA 0.23 s there) at matched accuracy. S4 gives the value alone, on 12 CPU cores; its ratio compares it with the value of SPECTRA-RCWA (0.22 s), 2,440x (24,100x against S4 in one process). Drawn by `scripts/make_speed_bar.py` from `benchmarks/results/`.
+**Figure 2: Time for 144 solves (9 wavelengths x 16 incidence directions, both polarisations, (8, 8) orders, 578 x 578 layer matrices) of a 0.25 µm freeform layer, one RTX 5090.** (a) Value only. (b) Value and gradient with respect to all 64 x 64 pattern values. Ratios are against SPECTRA-RCWA on the same problem. S4 was measured on a problem of the same size (0.8 µm layer, 128 x 128 values) on 12 CPU cores; its ratio uses SPECTRA-RCWA's value time there (0.22 s). Drawn by `scripts/make_speed_bar.py` from `benchmarks/results/`.
 
-| value and gradient, one RTX 5090 | SPECTRA-RCWA | TorchRDIT 0.2.0 | torcwa 0.1.4.2 | S4 (value only) |
-|---|---|---|---|---|
-| 0.25 µm layer, 64 x 64 design values, 144 solves | **0.23 s** | 10.9 s (R-DIT order 15, one slice) | | |
-| 1 µm layer, 64 x 64 design values, 144 solves | **0.30 s** | 19.4 s (R-DIT order 20, 0.25 µm slices set by hand) | | |
-| 0.8 µm layer, 128 x 128 design values, 144 solves | **0.252 s** | | 54.8 s | 529 s on 12 CPU cores |
-| gradient error, 0.8 µm layer (grey design) | **2.7e-6** | | 5.9e-3 | no gradient |
+| code | device, precision | value (s) | value + gradient (s) | max error of T00 | peak memory (GiB) |
+|---|---|---|---|---|---|
+| **SPECTRA-RCWA 1.2** | RTX 5090, complex64 | **0.25** | **0.28** | 2.5e-6 | 6.0 |
+| TorchRDIT 0.2.0 | RTX 5090, complex64 | 2.7 | 10.9 | 8.4e-6 † | 18.9 |
+| fmmax 1.7.1 (FFT formulation) | RTX 5090, complex64 | 10.2 | 10.4 | 1.1e-3 ‡ | 10.9 |
+| torcwa 0.1.4.2 | RTX 5090, complex64 | 14.5 | 15.7 | 1.7e-5 | 2.0 |
+| Meent 0.13.2 (torch) | RTX 5090, complex128 | 52 * | 65 * | 5.7e-3 § | 4.7 |
+| Meent 0.13.2 (JAX) | RTX 5090, complex128 | 118 * | 246 * | 1.4e-3 § | 0.1 |
+| grcwa 0.1.2 | CPU, 4 threads, complex128 | 217 * | 1591 * | 2.8e-10 | 7.1 (host) |
+| inkstone 0.3.15 | CPU, 4 threads, complex128 | 253 * | no gradient | 1.9e-2 § | 1.0 (host) |
+| rcwa 1.0.48 | CPU, 4 threads, complex128 | 517 * | no gradient | 2.8e-10 | 1.7 (host) |
+| S4 | i7-12700, 12 processes | 529 (other problem, see Figure 2) | no gradient | | |
 
-All runs use (8, 8) Fourier orders (578 x 578 layer matrices) and 144 solves (16 incidence directions x 9 wavelengths), each for both polarisations; the GPU codes run in complex64, and S4 gives the value alone, on an Intel i7-12700. The value errors of TorchRDIT in its two rows are 8.4e-6 and 3.7e-5, those of SPECTRA-RCWA 3.6e-6 and 5.2e-6; TorchRDIT was run with the series order of its paper and, for the 1 µm layer, with 0.25 µm slices, the setting that reaches this accuracy. Records: `benchmarks/results/`.
+Error: largest absolute error of the zeroth-order transmission (average of two orthogonal polarisations) over the 144 solves, against a converged complex128 eigendecomposition solution with the Laurent rule and rectangular truncation. \* timed on 16 of the 144 solves (one wavelength, all directions) and multiplied by 9: these codes solve one wavelength and direction per call. † TorchRDIT with the series order of its paper, directions in chunks of 4 to fit 80% of the card; error per polarisation. ‡ comes from complex64 eigendecomposition on the GPU; 8.5e-6 on the CPU. § follows from a different factorisation rule or truncation (Meent: Li's inverse rule; inkstone: circular truncation with exact pixel shapes), not from an error of the code. For a 1 µm layer SPECTRA-RCWA takes 0.29 / 0.35 s; fmmax, torcwa and Meent take the same time as at 0.25 µm, and TorchRDIT needs 0.25 µm slices set by hand (5.7 / 19.4 s) for this accuracy. Codes and versions as installed from PyPI on 2026-11-23, each with its documented API and default settings; script: `benchmarks/compare_other_rcwa.py`. Records: `benchmarks/results/`.
 
 SPECTRA-RCWA is an open-source (MIT) solver for periodic layered structures by rigorous coupled-wave analysis (RCWA, also called the Fourier modal method, FMM) that needs no eigendecomposition. It is written in PyTorch, runs many solves as one batch on a GPU (or on the CPU), and returns diffraction efficiencies, fields and the gradient of any objective with respect to every pixel of the pattern from one adjoint field. Use it to simulate and optimise diffraction gratings, metagratings, metasurfaces, photonic-crystal slabs, thin-film stacks and colour routers, in particular when an inverse design needs value and gradient over many wavelengths and incidence angles, for thick or multilayer patterns, or near the cutoff of a diffraction order, where eigendecomposition gradients fail.
 
@@ -477,7 +483,21 @@ spectra-rcwa check grating.json                          # errors, warnings, siz
 spectra-rcwa solve grating.json                          # efficiencies of every propagating order, p and s
 ```
 
-`spectra-rcwa mcp` serves seven tools over stdio (`pip install "spectra-rcwa[mcp]"`): `environment`, `example_problem`, `problem_schema`, `validate_problem`, `solve_efficiencies`, `efficiency_gradient` and `convergence_in_orders`. Register it in any MCP client as the command `spectra-rcwa` with the argument `mcp`, for example `claude mcp add spectra-rcwa -- spectra-rcwa mcp`. In Claude Code the repository is also a plugin marketplace with a skill and the server:
+`spectra-rcwa mcp` serves seven tools over stdio (`pip install "spectra-rcwa[mcp]"`): `environment`, `example_problem`, `problem_schema`, `validate_problem`, `solve_efficiencies`, `efficiency_gradient` and `convergence_in_orders`. Register it in any MCP client as the command `spectra-rcwa` with the argument `mcp`:
+
+```bash
+claude mcp add spectra-rcwa -- spectra-rcwa mcp                                   # Claude Code
+codex mcp add spectra-rcwa -- spectra-rcwa mcp                                    # OpenAI Codex CLI
+gemini extensions install https://github.com/hyoseokp/SPECTRA-RCWA                # Gemini CLI (server + AGENTS.md as context)
+```
+
+For Cursor, VS Code (Copilot agent mode), Windsurf and other clients that read an `mcp.json`, add:
+
+```json
+{ "mcpServers": { "spectra-rcwa": { "command": "spectra-rcwa", "args": ["mcp"] } } }
+```
+
+The same guide is picked up without setup by agents that open the repository: `AGENTS.md` (Codex, Cursor, Jules and other tools that read it), `CLAUDE.md` (Claude Code), `GEMINI.md` (Gemini CLI), `.github/copilot-instructions.md` (GitHub Copilot) and `.cursor/rules/` (Cursor); all of them point to `AGENTS.md`. In Claude Code the repository is also a plugin marketplace with a skill and the server:
 
 ```text
 /plugin marketplace add hyoseokp/spectra-rcwa
