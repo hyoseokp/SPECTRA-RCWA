@@ -6,7 +6,7 @@ Added
 * `spectra_rcwa.problem`: grating problems as JSON (lattice, orders, wavelengths, incidence, media, layers with patterns), checked before solving,
   with efficiencies of every order for p and s incidence, gradients of one order's efficiency, and convergence in the orders.
 * The command `spectra-rcwa` (`info`, `example`, `check`, `solve`, `mcp`) and an MCP server with seven tools (optional dependency `mcp`).
-* AGENTS.md, CLAUDE.md, llms.txt, llms-full.txt, CITATION.cff, a Claude Code plugin (`plugins/spectra-rcwa`), package keywords and links.
+* AGENTS.md, CLAUDE.md, llms.txt, llms-full.txt, CITATION.cff, a Claude Code plugin (`agents/claude-plugin`), package keywords and links.
 * `benchmarks/bench_synthetic.py`: a benchmark of the README's size on a synthetic freeform pattern, with nothing outside this package.
 
 Removed

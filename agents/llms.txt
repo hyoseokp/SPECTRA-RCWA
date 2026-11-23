@@ -8,7 +8,7 @@ SPECTRA-RCWA computes the power in every transmitted and reflected diffraction o
 
 - [Agent guide (AGENTS.md)](https://github.com/hyoseokp/spectra-rcwa/blob/main/AGENTS.md): when it fits, install, conventions, shortest working path, recipes, validation, pitfalls, MCP tools, changing the code
 - [README](https://github.com/hyoseokp/spectra-rcwa/blob/main/README.md): example, measured speed and accuracy, method, scope and conventions
-- [Full text for language models](https://github.com/hyoseokp/spectra-rcwa/blob/main/llms-full.txt): the agent guide and the README in one file
+- [Full text for language models](https://github.com/hyoseokp/spectra-rcwa/blob/main/agents/llms-full.txt): the agent guide and the README in one file
 
 ## Tools
 

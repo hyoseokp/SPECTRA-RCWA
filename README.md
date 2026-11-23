@@ -61,7 +61,7 @@ Measured (complex64 on one RTX 5090 unless named; records in `benchmarks/results
 * Compared with TorchRDIT 0.2.0, another eigendecomposition-free RCWA, on the same problems and GPU at matched accuracy: 47 times less time for a 0.25 µm layer and 65 times for 1 µm, with one third to one half of the peak GPU memory (6.0 against 18.9 GiB, 8.4 against 14.0 GiB). SPECTRA-RCWA chooses the number of steps from the layer thickness, so thick layers need no slicing setting.
 * On a 144-solve evaluation with 128 x 128 design values (a 0.8 µm layer, 16 directions x 9 wavelengths), value and gradient take 0.252 s, 218 times less than torcwa (54.8 s) on the same GPU. The gradient agrees with a complex128 reference to 2.7e-6, and to 3.8e-5 on a layer with an order at cutoff, where torcwa's gradient is wrong by 0.49.
 
-Agents: read [AGENTS.md](https://github.com/hyoseokp/spectra-rcwa/blob/main/AGENTS.md), or run `spectra-rcwa mcp` for tools that set up, check and solve a grating problem ([llms.txt](https://github.com/hyoseokp/spectra-rcwa/blob/main/llms.txt)).
+Agents: read [AGENTS.md](https://github.com/hyoseokp/spectra-rcwa/blob/main/AGENTS.md), or run `spectra-rcwa mcp` for tools that set up, check and solve a grating problem ([llms.txt](https://github.com/hyoseokp/spectra-rcwa/blob/main/agents/llms.txt)).
 
 [How it works](#what-it-does) · [Install](#install) · [Efficiencies](#diffraction-efficiencies) · [Scope and conventions](#scope-and-conventions) · [Speed and accuracy](#speed-and-accuracy) · [Agents and MCP](#ai-agents-and-mcp) · [Citation](#citation)
 
@@ -328,7 +328,7 @@ python bench_synthetic.py synthetic_small.json --small      # a small case for a
 
 ## AI agents and MCP
 
-[AGENTS.md](https://github.com/hyoseokp/spectra-rcwa/blob/main/AGENTS.md) tells an agent when the package fits, how to set up a problem, how to check it and which pitfalls to avoid; [llms.txt](https://github.com/hyoseokp/spectra-rcwa/blob/main/llms.txt) and [llms-full.txt](https://github.com/hyoseokp/spectra-rcwa/blob/main/llms-full.txt) are the same material for language models. The command line takes problems as JSON:
+[AGENTS.md](https://github.com/hyoseokp/spectra-rcwa/blob/main/AGENTS.md) tells an agent when the package fits, how to set up a problem, how to check it and which pitfalls to avoid; [llms.txt](https://github.com/hyoseokp/spectra-rcwa/blob/main/agents/llms.txt) and [llms-full.txt](https://github.com/hyoseokp/spectra-rcwa/blob/main/agents/llms-full.txt) are the same material for language models. The command line takes problems as JSON:
 
 ```bash
 spectra-rcwa example lamellar_grating > grating.json     # also pillar_array, slab, two_layer_grating
@@ -350,7 +350,7 @@ For Cursor, VS Code (Copilot agent mode), Windsurf and other clients that read a
 { "mcpServers": { "spectra-rcwa": { "command": "spectra-rcwa", "args": ["mcp"] } } }
 ```
 
-The same guide is picked up without setup by agents that open the repository: `AGENTS.md` (Codex, Cursor, Jules and other tools that read it), `CLAUDE.md` (Claude Code), `GEMINI.md` (Gemini CLI), `.github/copilot-instructions.md` (GitHub Copilot) and `.cursor/rules/` (Cursor); all of them point to `AGENTS.md`. In Claude Code the repository is also a plugin marketplace with a skill and the server:
+The same guide is picked up without setup by agents that open the repository: `AGENTS.md` (Codex, Cursor, Jules and other tools that read it), `CLAUDE.md` (Claude Code), `GEMINI.md` (Gemini CLI), `.github/copilot-instructions.md` (GitHub Copilot) and `.cursor/rules/` (Cursor); all of them point to `AGENTS.md`, and these few files stay at the top level only because each tool looks for them there. Everything else for agents is in `agents/`: `llms.txt`, `llms-full.txt` and the Claude Code plugin (`agents/claude-plugin`). In Claude Code the repository is also a plugin marketplace with a skill and the server:
 
 ```text
 /plugin marketplace add hyoseokp/spectra-rcwa

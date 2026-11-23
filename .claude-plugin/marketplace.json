@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "spectra-rcwa",
-      "source": "./plugins/spectra-rcwa",
+      "source": "./agents/claude-plugin",
       "description": "Solve gratings, metagratings and metasurface cells with SPECTRA-RCWA: set up, validate and solve problems and take gradients through MCP tools."
     }
   ]
