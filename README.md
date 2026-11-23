@@ -351,6 +351,10 @@ A manuscript describing SPECTRA-RCWA is in preparation; until it appears, cite t
 }
 ```
 
+## AI-assisted development
+
+During the development of SPECTRA-RCWA, Anthropic Claude Opus 5.5 and Claude Fable 5.2 were used as AI-assisted programming tools to support code prototyping, implementation, refactoring, debugging, test generation, benchmarking scripts and documentation. The author defined the numerical formulation, physical assumptions, validation criteria, benchmark protocols and acceptance thresholds, and reviewed the resulting implementation and numerical results. Solver correctness was independently assessed against eigendecomposition RCWA and the Airy formula of a slab, by energy conservation, by central finite-difference and automatic-differentiation gradient checks in complex128, by complex64 against complex128 and CPU against GPU results, and by comparison with torcwa, S4 and TorchRDIT on the same problems. The author takes full responsibility for the software, methodology and results reported here.
+
 ## License
 
 MIT, see [LICENSE](https://github.com/hyoseokp/spectra-rcwa/blob/main/LICENSE).
