@@ -1,0 +1,18 @@
+{
+ "device": "NVIDIA GeForce RTX 4090",
+ "wall_s": 0.39274993794970214,
+ "stages_ms_median": {
+  "fwd: assemble E, E^-1": 3.7415591068565845,
+  "fwd: assemble A = P Q": 4.789044847711921,
+  "fwd: cos, sin": 50.21155718713999,
+  "fwd: thin layer in the reference basis": 37.62749396264553,
+  "fwd: S-matrix doubling": 127.11901194415987,
+  "fwd: boundary": 40.36231804639101,
+  "fwd: detector field, wells": 1.1929708998650312,
+  "bwd: fields on the planes": 15.397429000586271,
+  "bwd: integral over the layer": 26.0276161134243,
+  "fwd: solve for the two polarisations": 4.7821542248129845,
+  "bwd: fields on the ends, sweeps": 65.52916392683983,
+  "fwd: objective, autograd of the rest": 22.089388919994235
+ }
+}

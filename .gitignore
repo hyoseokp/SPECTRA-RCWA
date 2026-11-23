@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+*.pt
+*.npy
+*.npz
+benchmarks/spec.json
+benchmarks/s4_check.json
+benchmarks/s4_time.jsonl
+/results/
+.local/

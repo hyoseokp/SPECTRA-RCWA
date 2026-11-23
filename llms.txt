@@ -1,0 +1,23 @@
+# SPECTRA-RCWA
+
+> Open-source (MIT) solver for periodic layered structures by rigorous coupled-wave analysis (RCWA, Fourier modal method, FMM) without eigendecomposition, in PyTorch. Batched on a GPU or run on the CPU, with adjoint gradients for inverse design of diffraction gratings, metagratings, metasurfaces, photonic-crystal slabs, thin films and colour routers. Command line and MCP server for AI agents. Lengths in micrometres, wavelengths in nanometres. Install with `pip install spectra-rcwa`.
+
+SPECTRA-RCWA computes the power in every transmitted and reflected diffraction order for p and s incidence, fields, and the gradient of any objective with respect to every pattern value, for many wavelengths and incidence directions in one batch. Thick layers need no slicing setting, and gradients stay right at the cutoff of an order. On an RTX 5090, 144 solves with 578 x 578 layer matrices give value and gradient in 0.23 s, 47 to 65 times faster than TorchRDIT at matched accuracy and 218 times faster than torcwa. Scope: rectangular lattices, each layer a pattern of two isotropic non-magnetic materials, Laurent rule (metals converge slowly in the orders).
+
+## Start here
+
+- [Agent guide (AGENTS.md)](https://github.com/hyoseokp/spectra-rcwa/blob/main/AGENTS.md): when it fits, install, conventions, shortest working path, recipes, validation, pitfalls, MCP tools, changing the code
+- [README](https://github.com/hyoseokp/spectra-rcwa/blob/main/README.md): example, measured speed and accuracy, method, scope and conventions
+- [Full text for language models](https://github.com/hyoseokp/spectra-rcwa/blob/main/llms-full.txt): the agent guide and the README in one file
+
+## Tools
+
+- Command line: `spectra-rcwa info`, `spectra-rcwa example lamellar_grating`, `spectra-rcwa check FILE`, `spectra-rcwa solve FILE`
+- MCP server: `spectra-rcwa mcp` (`pip install "spectra-rcwa[mcp]"`), tools `environment`, `example_problem`, `problem_schema`, `validate_problem`, `solve_efficiencies`, `efficiency_gradient`, `convergence_in_orders`
+- Claude Code plugin: `/plugin marketplace add hyoseokp/spectra-rcwa`, then `/plugin install spectra-rcwa@spectra-rcwa`
+
+## Optional
+
+- [Changelog](https://github.com/hyoseokp/spectra-rcwa/blob/main/CHANGELOG.md)
+- [Benchmark records](https://github.com/hyoseokp/spectra-rcwa/tree/main/benchmarks/results)
+- [Citation](https://github.com/hyoseokp/spectra-rcwa/blob/main/CITATION.cff)

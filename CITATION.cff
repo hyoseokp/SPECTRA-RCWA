@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use SPECTRA-RCWA, please cite it as below. A manuscript describing the method is in preparation; this entry will point to it once it appears."
+title: "SPECTRA-RCWA: eigendecomposition-free batched RCWA forward and adjoint in PyTorch"
+type: software
+authors:
+  - family-names: Park
+    given-names: Hyoseok
+version: 1.2.0
+license: MIT
+repository-code: "https://github.com/hyoseokp/spectra-rcwa"
+url: "https://github.com/hyoseokp/spectra-rcwa"
+keywords:
+  - RCWA
+  - rigorous coupled-wave analysis
+  - Fourier modal method
+  - diffraction grating
+  - metasurface
+  - inverse design
+  - adjoint method
+  - PyTorch
+  - GPU

@@ -1,0 +1,12 @@
+{
+ "note": "The route through Gamma with 4 Denman-Beavers steps on a symmetric 8-layer pattern at normal incidence (research code with the same equations, RTX 4090, 405 solves, solve 3, 420 nm); and how often a small eigenvalue occurs on an 8-layer design (1152 layer solves, 4 with ||A^-1||_F above 1e6).",
+ "small_complex_pair": {
+  "lambda": [-5.912e-05, -1.307e-04],
+  "T_4_steps_complex64": 0.7607,
+  "T_4_steps_complex128": 0.7658,
+  "T_converged": 0.9579,
+  "residual_Y2_minus_X_4_steps": 6.5e-02,
+  "residual_Y2_minus_X_6_steps": 4.2e-10
+ },
+ "layer_solves_per_norm_above_1e6": 288
+}

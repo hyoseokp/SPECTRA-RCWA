@@ -1,0 +1,20 @@
+{
+  "name": "spectra-rcwa",
+  "version": "1.0.0",
+  "description": "SPECTRA-RCWA for Claude Code: a skill for rigorous coupled-wave analysis (RCWA, Fourier modal method) of periodic photonic structures and the spectra-rcwa MCP server.",
+  "author": {
+    "name": "Hyoseok Park"
+  },
+  "homepage": "https://github.com/hyoseokp/spectra-rcwa",
+  "repository": "https://github.com/hyoseokp/spectra-rcwa",
+  "license": "MIT",
+  "keywords": [
+    "rcwa",
+    "fourier-modal-method",
+    "diffraction-grating",
+    "metasurface",
+    "inverse-design",
+    "photonics",
+    "mcp"
+  ]
+}

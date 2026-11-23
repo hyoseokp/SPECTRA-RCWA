@@ -1,0 +1,25 @@
+{
+  "title": "SPECTRA-RCWA: eigendecomposition-free, GPU-batched rigorous coupled-wave analysis with adjoint gradients",
+  "upload_type": "software",
+  "description": "SPECTRA-RCWA (spectral propagation engine for coupled-wave theory with recursive admittance) is a PyTorch RCWA / Fourier modal method solver for periodic layered structures. It replaces the per-layer eigendecomposition by entire matrix functions evaluated with matrix products, stabilises evanescent orders with an admittance recursion or scattering-matrix doubling, and returns gradients for every design value from one adjoint field. All solves of an objective (wavelengths, angles, polarisations) run as one GPU batch, for inverse design of metasurfaces, metagratings and other periodic photonic devices.",
+  "creators": [
+    {
+      "name": "Park, Hyoseok",
+      "affiliation": "Department of Physics and Institute of Quantum Systems, Chungnam National University"
+    }
+  ],
+  "license": "MIT",
+  "keywords": [
+    "rigorous coupled-wave analysis",
+    "RCWA",
+    "Fourier modal method",
+    "adjoint method",
+    "inverse design",
+    "metasurface",
+    "differentiable simulation",
+    "GPU",
+    "PyTorch",
+    "photonics"
+  ],
+  "access_right": "open"
+}

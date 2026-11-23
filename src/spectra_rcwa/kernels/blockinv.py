@@ -1,0 +1,68 @@
+"""Batched inverse by block recursion (Schur complement); all work in batched GEMMs.
+
+    inv([[A, B], [C, D]]):  X = inv(A),  T = C X,  S = D - T B,  Si = inv(S),  U = X B
+                            [[X + U Si T, -U Si], [-Si T, Si]]
+
+recursing on A and S down to ``BASE``, where cuBLAS getrf/getriBatched (pivoted inside the base block) or,
+on CPU, torch.linalg.inv takes over.  There is no pivoting across blocks: use it only on matrices that do not
+need it (the later Denman-Beavers iterates and the boundary-solve matrices; not the first DB iterates).
+No host synchronisation.  :func:`inv_block` adds the autograd backward -X^H G X^H.
+"""
+from __future__ import annotations
+
+import torch
+from torch.autograd.function import once_differentiable
+
+from .cublas_inv import inv_cublas
+
+BASE = 80
+
+
+def _base_inv(a):
+    if a.is_cuda and a.dtype == torch.complex64:
+        return inv_cublas(a.contiguous())
+    return torch.linalg.inv(a)
+
+
+def block_inverse(a: torch.Tensor) -> torch.Tensor:
+    """Inverse of [B, n, n] (no autograd)."""
+    n = a.shape[-1]
+    if n <= BASE:
+        return _base_inv(a)
+    h = n // 2
+    a11, a12 = a[:, :h, :h], a[:, :h, h:]                          # strided views, no copies
+    a21, a22 = a[:, h:, :h], a[:, h:, h:]
+    x = block_inverse(a11)
+    t = a21 @ x
+    s = torch.baddbmm(a22, t, a12, beta=1.0, alpha=-1.0)
+    si = block_inverse(s)
+    u = x @ a12
+    b12 = -(u @ si)
+    b21 = -(si @ t)
+    b11 = torch.baddbmm(x, b12, t, beta=1.0, alpha=-1.0)           # X + U Si T = X - B12 T
+    out = torch.empty_like(a)
+    out[:, :h, :h] = b11
+    out[:, :h, h:] = b12
+    out[:, h:, :h] = b21
+    out[:, h:, h:] = si
+    return out
+
+
+class _InvBlock(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, a):
+        x = block_inverse(a.contiguous())
+        ctx.save_for_backward(x)
+        return x
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, g):
+        (x,) = ctx.saved_tensors
+        xh = x.mH
+        return -(xh @ (g @ xh))
+
+
+def inv_block(a: torch.Tensor) -> torch.Tensor:
+    """Differentiable block-recursive inverse."""
+    return _InvBlock.apply(a)

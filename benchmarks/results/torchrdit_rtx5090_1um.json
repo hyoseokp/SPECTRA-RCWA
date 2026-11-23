@@ -1,0 +1,165 @@
+{
+ "environment": {
+  "python": "3.11.10",
+  "torch": "2.10.0+cu128",
+  "platform": "Linux-6.8.0-149-generic-x86_64-with-glibc2.35",
+  "device": "cuda",
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "skimage_stubbed": true,
+  "torchrdit": "0.2.0"
+ },
+ "wavelengths_um": [
+  0.5,
+  0.525,
+  0.55,
+  0.575,
+  0.6,
+  0.625,
+  0.6499999999999999,
+  0.6749999999999999,
+  0.7
+ ],
+ "incidence_deg": [
+  [
+   3.0,
+   20.0
+  ],
+  [
+   3.0,
+   110.0
+  ],
+  [
+   3.0,
+   200.0
+  ],
+  [
+   3.0,
+   290.0
+  ],
+  [
+   7.0,
+   20.0
+  ],
+  [
+   7.0,
+   110.0
+  ],
+  [
+   7.0,
+   200.0
+  ],
+  [
+   7.0,
+   290.0
+  ],
+  [
+   11.0,
+   20.0
+  ],
+  [
+   11.0,
+   110.0
+  ],
+  [
+   11.0,
+   200.0
+  ],
+  [
+   11.0,
+   290.0
+  ],
+  [
+   15.0,
+   20.0
+  ],
+  [
+   15.0,
+   110.0
+  ],
+  [
+   15.0,
+   200.0
+  ],
+  [
+   15.0,
+   290.0
+  ]
+ ],
+ "orders": [
+  8,
+  8
+ ],
+ "grid": [
+  64,
+  64
+ ],
+ "period_um": 1.2,
+ "eps_layer": 4.0,
+ "eps_substrate": 2.125,
+ "repeats": 5,
+ "warmup": 2,
+ "statistic": "median",
+ "reference": "our eigendecomposition RCWA (complex128) for the value, our complex128 gradient",
+ "blocks": [
+  {
+   "thickness_um": 1.0,
+   "rows": [
+    {
+     "code": "SPECTRA",
+     "setting": "adjoint field, complex64, one batch",
+     "value_s": 0.24941992003004998,
+     "value_s_min": 0.2476377960992977,
+     "value_grad_s": 0.3013824879890308,
+     "value_grad_s_min": 0.3001272730762139,
+     "finite": true,
+     "value_error": 5.169782348435348e-06,
+     "gradient_error": 2.405518822238145e-06,
+     "peak_gib_value": 4.5357136726379395,
+     "peak_gib_value_grad": 8.424782752990723
+    },
+    {
+     "code": "TorchRDIT",
+     "setting": "R-DIT order 15, 1 slice (order of the paper), complex64",
+     "value_s": 2.7084969519637525,
+     "value_s_min": 2.6840662370668724,
+     "value_grad_s": 11.570005509071052,
+     "value_grad_s_min": 10.958268664078787,
+     "finite": true,
+     "value_error": 106.4556126882086,
+     "gradient_error": 79291.92819037105,
+     "peak_gib_value": 7.717703342437744,
+     "peak_gib_value_grad": 18.910834312438965,
+     "direction_chunk": 4
+    },
+    {
+     "code": "TorchRDIT",
+     "setting": "R-DIT order 20, 1 slice, complex64",
+     "value_s": 2.8595895539037883,
+     "value_s_min": 2.848462639027275,
+     "value_grad_s": 11.288926969980821,
+     "value_grad_s_min": 11.218033734941855,
+     "finite": true,
+     "value_error": 406.46428984039756,
+     "gradient_error": 259183.22116387053,
+     "peak_gib_value": 7.727954864501953,
+     "peak_gib_value_grad": 20.717965602874756,
+     "direction_chunk": 4
+    },
+    {
+     "code": "TorchRDIT",
+     "setting": "R-DIT order 20, 0.25 um slices (set by hand), complex64",
+     "value_s": 5.738626852980815,
+     "value_s_min": 5.676402443088591,
+     "value_grad_s": 19.42860780004412,
+     "value_grad_s_min": 19.336951225996017,
+     "finite": true,
+     "value_error": 3.739219152534834e-05,
+     "gradient_error": 4.037135827251611e-05,
+     "peak_gib_value": 4.081299304962158,
+     "peak_gib_value_grad": 14.00117301940918,
+     "direction_chunk": 2
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "spectra-rcwa",
+  "description": "SPECTRA-RCWA plugins for Claude Code: RCWA (Fourier modal method) diffraction efficiencies and gradients of periodic photonic structures.",
+  "owner": {
+    "name": "Hyoseok Park"
+  },
+  "plugins": [
+    {
+      "name": "spectra-rcwa",
+      "source": "./plugins/spectra-rcwa",
+      "description": "Solve gratings, metagratings and metasurface cells with SPECTRA-RCWA: set up, validate and solve problems and take gradients through MCP tools."
+    }
+  ]
+}

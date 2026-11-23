@@ -1,0 +1,121 @@
+{
+ "problem": "I_img value + gradient, 128 x 128 design, 16 rays x 9 wavelengths x 2 polarisations, (8, 8) orders",
+ "rtx5880_ada": {
+  "torcwa_gpu_value_s": 121.40412660001311,
+  "torcwa_gpu_value_grad_s_est": 127.15791147101427,
+  "this_work_c64": {
+   "value_grad_s": 0.8584929000353441,
+   "peak_gib": 15.863672733306885,
+   "binary": {
+    "tabs_max_rel": 7.648550654886318e-06,
+    "iimg_abs_err": 4.1586938359650105e-07,
+    "grad_rel_l2": 0.0045435969268862
+   },
+   "grey": {
+    "tabs_max_rel": 5.603994095150194e-06,
+    "iimg_abs_err": 8.418540831112153e-07,
+    "grad_rel_l2": 0.0007758247893075588
+   }
+  }
+ },
+ "h200": {
+  "this_work_c64": {
+   "value_grad_s": 0.38576131616719067,
+   "peak_gib": 15.910773277282715,
+   "binary": {
+    "tabs_max_rel": 1.4077349575348678e-05,
+    "iimg_abs_err": 1.396521118746108e-07,
+    "grad_rel_l2": 0.004153133117767078
+   },
+   "grey": {
+    "tabs_max_rel": 6.104321917047958e-06,
+    "iimg_abs_err": 6.108803165538745e-07,
+    "grad_rel_l2": 0.0009040764567261548
+   }
+  },
+  "this_work_c128": {
+   "value_grad_s": 0.8215832978021353,
+   "peak_gib": 33.8188591003418,
+   "binary": {
+    "tabs_max_rel": 1.6305184938003606e-13,
+    "iimg_abs_err": 8.215650382226158e-15,
+    "grad_rel_l2": 7.792654325352992e-10
+   },
+   "grey": {
+    "tabs_max_rel": 6.325594614805099e-14,
+    "iimg_abs_err": 7.549516567451064e-15,
+    "grad_rel_l2": 8.806688010407671e-12
+   }
+  }
+ },
+ "single_solve_s": {
+  "torcwa_gpu_one_polarisation": {
+   "value_grad_s": 0.2707146001048386,
+   "value_s": 0.2584649999625981
+  },
+  "this_work_c64": {
+   "value_grad_s": 0.09990290005225688,
+   "value_s": 0.08141780004370958
+  }
+ },
+ "c128_gradient_vs_finite_differences_max_rel": 4.840882868872039e-07,
+ "stages_ms_median": {
+  "rtx5880_ada": {
+   "fwd: assemble E, E^-1, P, Q, A=PQ": 21.85932731628418,
+   "fwd: sqrt (DB x4 + tail)": 169.6716766357422,
+   "fwd: exp (Taylor18 + squarings)": 159.38253784179688,
+   "fwd: boundary solve (Ki,Ko, 2 inverses)": 91.24453735351562,
+   "fwd: detector field + wells": 1.90142822265625,
+   "fwd: copy Tabs to CPU (DtoH)": 0.109100341796875,
+   "fwd: I_img objective (CPU)": 8.735504150390625,
+   "bwd: detector field + wells": 5.62548828125,
+   "bwd: boundary adjoint": 8.02508544921875,
+   "bwd: exp (squarings, Taylor)": 155.26296997070312,
+   "bwd: sqrt (DB, tail)": 215.46905517578125,
+   "bwd: P via Ki,Ko": 9.9420166015625,
+   "bwd: rest (E/E^-1 assembly, Toeplitz)": 4.3714599609375
+  },
+  "h200": {
+   "fwd: assemble E, E^-1, P, Q, A=PQ": 9.904447555541992,
+   "fwd: sqrt (DB x4 + tail)": 91.71833896636963,
+   "fwd: exp (Taylor18 + squarings)": 70.09797668457031,
+   "fwd: boundary solve (Ki,Ko, 2 inverses)": 42.721954345703125,
+   "fwd: detector field + wells": 0.6049346923828125,
+   "fwd: copy Tabs to CPU (DtoH)": 0.054901123046875,
+   "fwd: I_img objective (CPU)": 9.118759155273438,
+   "bwd: detector field + wells": 4.901123046875,
+   "bwd: boundary adjoint": 2.2343292236328125,
+   "bwd: exp (squarings, Taylor)": 57.4029541015625,
+   "bwd: sqrt (DB, tail)": 91.96493530273438,
+   "bwd: P via Ki,Ko": 3.77557373046875,
+   "bwd: rest (E/E^-1 assembly, Toeplitz)": 1.40643310546875
+  }
+ },
+ "multilayer_h200": {
+  "c128 L1 vs direct": 2.4460308891768156e-14,
+  "c128 2x0.4 vs 1x0.8": 5.003506917741946e-14,
+  "c64 L1 vs direct": 1.0263187505188398e-05,
+  "c64 2x0.4 vs 1x0.8": 1.6098401829367504e-05,
+  "L1 value_grad_s": 0.6098170201294124,
+  "L1 peak_gib": 19.148971557617188,
+  "L1 grey I_img": 1.0065915339241471,
+  "L1 max transmission": 0.968808650970459,
+  "L2 value_grad_s": 0.962127226870507,
+  "L2 peak_gib": 32.81714105606079,
+  "L2 grey I_img": 1.006562802149861,
+  "L2 max transmission": 0.9687608480453491,
+  "L4 value_grad_s": 1.8529099710285664,
+  "L4 peak_gib": 61.58375787734985,
+  "L4 grey I_img": 1.0065276947686335,
+  "L4 max transmission": 0.9690375328063965
+ },
+ "s4_cpu": {
+  "cpu": "12th Gen Intel(R) Core(TM) i7-12700",
+  "solves": 144,
+  "value_only": true,
+  "value_s_12_processes": 529.387879762,
+  "value_s_1_process": 5238.2985595029995,
+  "wells_max_rel_vs_torcwa": 0.03381703608339105,
+  "transmission_max_abs_vs_torcwa": 0.0001709905518200161
+ }
+}

@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spectra-rcwa"
+version = "1.2.0"
+description = "RCWA / Fourier modal method solver without eigendecomposition, with adjoint gradients: batched on the GPU in PyTorch, for inverse design of metasurfaces, gratings and colour routers"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Hyoseok Park" }]
+requires-python = ">=3.10"
+dependencies = ["torch>=2.6", "numpy"]   # complex64 on CUDA needs torch >= 2.8 (torch.cuda._compile_kernel)
+keywords = ["RCWA", "rigorous coupled-wave analysis", "Fourier modal method", "FMM", "scattering matrix", "diffraction grating",
+            "metagrating", "metasurface", "colour router", "color router", "inverse design", "topology optimization", "adjoint method",
+            "differentiable", "PyTorch", "GPU", "CUDA", "photonics", "nanophotonics", "optics", "electromagnetics", "MCP"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Environment :: GPU :: NVIDIA CUDA :: 12",
+]
+
+[project.urls]
+Homepage = "https://github.com/hyoseokp/spectra-rcwa"
+Documentation = "https://github.com/hyoseokp/spectra-rcwa#readme"
+Source = "https://github.com/hyoseokp/spectra-rcwa"
+Issues = "https://github.com/hyoseokp/spectra-rcwa/issues"
+Changelog = "https://github.com/hyoseokp/spectra-rcwa/blob/main/CHANGELOG.md"
+"Agent guide" = "https://github.com/hyoseokp/spectra-rcwa/blob/main/AGENTS.md"
+
+[project.optional-dependencies]
+test = ["pytest"]
+figures = ["matplotlib"]
+mcp = ["mcp>=1.2"]
+
+[project.scripts]
+spectra-rcwa = "spectra_rcwa.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

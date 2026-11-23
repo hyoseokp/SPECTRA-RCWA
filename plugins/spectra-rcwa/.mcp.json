@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "spectra-rcwa": {
+      "command": "spectra-rcwa",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}

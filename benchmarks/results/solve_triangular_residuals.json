@@ -1,0 +1,6 @@
+{
+ "note": "Residual ||A x - b|| / ||b|| (largest, median over the batch) of triangular solves on the LU factors of random complex64 matrices, 578 x 578, two right-hand sides, torch 2.10.0+cu128, RTX 5090, preferred_linalg_library left at its default; the same with MAGMA selected. The matrices need pivoting; diagonally dominant ones are right at every batch size.",
+ "torch.linalg.solve_triangular, explicit factors": {"8": [2.8e-4, 2.0e-4], "16": [7.5, 6.9], "32": [7.2, 6.8], "144": [7.5, 6.8]},
+ "spectra_rcwa.kernels.pivlu.lu_solve": {"8": [2.3e-4, 1.6e-4], "16": [8.7e-4, 2.3e-4], "32": [2.5e-3, 2.0e-4], "144": [9.4e-3, 2.0e-4]},
+ "torch.linalg.solve": {"8": [3.6e-4, 2.4e-4], "16": [1.5e-3, 3.5e-4], "32": [3.1e-3, 3.1e-4], "144": [1.4e-2, 3.2e-4]}
+}

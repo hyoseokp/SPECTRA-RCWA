@@ -1,0 +1,503 @@
+# SPECTRA-RCWA
+
+> Open-source (MIT) solver for periodic layered structures by rigorous coupled-wave analysis (RCWA, Fourier modal method, FMM) without eigendecomposition, in PyTorch. Batched on a GPU or run on the CPU, with adjoint gradients for inverse design of diffraction gratings, metagratings, metasurfaces, photonic-crystal slabs, thin films and colour routers. Command line and MCP server for AI agents. Lengths in micrometres, wavelengths in nanometres. Install with `pip install spectra-rcwa`.
+
+SPECTRA-RCWA computes the power in every transmitted and reflected diffraction order for p and s incidence, fields, and the gradient of any objective with respect to every pattern value, for many wavelengths and incidence directions in one batch. Thick layers need no slicing setting, and gradients stay right at the cutoff of an order. On an RTX 5090, 144 solves with 578 x 578 layer matrices give value and gradient in 0.23 s, 47 to 65 times faster than TorchRDIT at matched accuracy and 218 times faster than torcwa. Scope: rectangular lattices, each layer a pattern of two isotropic non-magnetic materials, Laurent rule (metals converge slowly in the orders).
+
+## Start here
+
+- [Agent guide (AGENTS.md)](https://github.com/hyoseokp/spectra-rcwa/blob/main/AGENTS.md): when it fits, install, conventions, shortest working path, recipes, validation, pitfalls, MCP tools, changing the code
+- [README](https://github.com/hyoseokp/spectra-rcwa/blob/main/README.md): example, measured speed and accuracy, method, scope and conventions
+- [Full text for language models](https://github.com/hyoseokp/spectra-rcwa/blob/main/llms-full.txt): the agent guide and the README in one file
+
+## Tools
+
+- Command line: `spectra-rcwa info`, `spectra-rcwa example lamellar_grating`, `spectra-rcwa check FILE`, `spectra-rcwa solve FILE`
+- MCP server: `spectra-rcwa mcp` (`pip install "spectra-rcwa[mcp]"`), tools `environment`, `example_problem`, `problem_schema`, `validate_problem`, `solve_efficiencies`, `efficiency_gradient`, `convergence_in_orders`
+- Claude Code plugin: `/plugin marketplace add hyoseokp/spectra-rcwa`, then `/plugin install spectra-rcwa@spectra-rcwa`
+
+## Optional
+
+- [Changelog](https://github.com/hyoseokp/spectra-rcwa/blob/main/CHANGELOG.md)
+- [Benchmark records](https://github.com/hyoseokp/spectra-rcwa/tree/main/benchmarks/results)
+- [Citation](https://github.com/hyoseokp/spectra-rcwa/blob/main/CITATION.cff)
+
+---
+
+# SPECTRA-RCWA guide for AI agents
+
+SPECTRA-RCWA is an open-source (MIT) Python package that solves periodic layered structures by rigorous coupled-wave analysis (RCWA, the Fourier modal method, FMM) without eigendecomposition. It runs on PyTorch, batches many solves on a GPU (CPU works too), and gives the gradient of an objective with respect to every pixel of every layer's pattern from one adjoint field. This file tells an agent when the package fits, how to set up and check a problem, how to drive it through the command line or MCP tools, and how to change its code.
+
+## When it fits
+
+Good fits:
+
+- Diffraction efficiencies (power per transmitted and reflected order) of 1D and 2D gratings, metagratings, metasurface unit cells, photonic-crystal slabs, thin films, and stacks of patterned layers, for p and s incidence, at any wavelength and incidence direction.
+- Gradients of such efficiencies, or of any differentiable function of them, with respect to the pattern: topology optimisation and inverse design.
+- Many wavelengths and directions at once (one GPU batch), thick layers (no slicing to choose), and orders at or near cutoff (the gradient stays finite and right there).
+- Colour routers above an image sensor: `ColorRouterForward.response` gives the power in each quadrant of the detector plane under a camera-lens pupil.
+
+Not a fit, or check first:
+
+- Each layer mixes two isotropic, non-magnetic materials linearly through a density in [0, 1]. Anisotropic, magnetic or graded-index (more than two materials in one layer) patterns are out of scope. A layer of other materials than the rest of the stack is possible as a stored block (no gradient through it); the MCP problem format does this with per-layer `eps_design` / `eps_fill`.
+- Rectangular lattices only (periods along x and y). No hexagonal lattice, except as a rectangular supercell.
+- The permittivity enters by the Laurent rule, as in torcwa: metals and other high-contrast patterns converge slowly in the orders. Check convergence and say so.
+- Non-periodic devices (a finite lens, a waveguide circuit) need a full-wave solver such as FDTD; a large-area lens can only be approximated cell by cell.
+
+## Install
+
+```sh
+pip install spectra-rcwa              # torch >= 2.6 and numpy; or pip install git+https://github.com/hyoseokp/spectra-rcwa
+pip install "spectra-rcwa[mcp]"       # adds the MCP server
+spectra-rcwa info                     # version, torch, GPU, examples, conventions
+```
+
+Install a CUDA build of PyTorch first for GPU runs. Single precision on CUDA uses NVRTC kernels compiled through `torch.cuda._compile_kernel` and needs torch >= 2.8; no CUDA toolkit is needed. The CPU and double precision run on plain torch.
+
+## Conventions
+
+- Lengths in µm, wavelengths in nm. In the Python API `Ray` angles are in radians; in the JSON problems and MCP tools, degrees.
+- Time dependence exp(−iωt): an absorbing material has Im ε > 0. Write it as ε = (n + ik)², or `{"n": n, "k": k}` in a problem.
+- Light comes from the superstrate (`eps_in`), which must be lossless; the substrate is `eps_out`. Layers are listed top first.
+- `density[i, j]` is the sample at x = iΛx/H, y = jΛy/W; density 1 is `eps_design`, 0 is `eps_fill`. H and W must be at least 4 × orders + 1.
+- `fourier_orders=(M, N)` keeps (2M + 1)(2N + 1) orders; (M, 0) is a 1D grating with ridges along y. `efficiencies` returns (T, R), each `[solves, orders, 2]`; order (m, n) is at index (m + M)(2N + 1) + (n + N). Solves run over wavelengths, then directions: index = wavelength × directions + direction.
+- The two columns are the incident polarisations p cos φ − s sin φ and p sin φ + s cos φ: p and s for φ = 0, x and y at normal incidence. The JSON problems and MCP tools report p and s for any φ.
+- Every solve runs at the frequency (1 + `rayleigh_nudge`)/λ, 1e-4 by default, to keep orders off their Rayleigh points: a 633 nm solve is at 632.94 nm. Set `rayleigh_nudge=0` in `Stack` (or the problem) to compare with an analytic result away from a Rayleigh point. π is torcwa's 3.141592652589793, so agreement with exact formulas is about 1e-9, not 1e-15.
+
+## Shortest working path
+
+Command line, problems as JSON:
+
+```sh
+spectra-rcwa example lamellar_grating > grating.json     # also pillar_array, slab, two_layer_grating
+spectra-rcwa check grating.json                          # errors, warnings, orders, matrix size
+spectra-rcwa solve grating.json                          # every propagating order: p, s, unpolarised, angle; totals; energy check
+```
+
+Python, problems as dictionaries:
+
+```python
+from spectra_rcwa import problem as P
+
+pr = P.example("lamellar_grating")
+pr["layers"][0]["pattern"]["fill_factor"] = 0.4
+print(P.check(pr))                                       # read the warnings
+sol = P.solve(pr)                                        # sol["results"], sol["checks"]["energy_error"], sol["arrays"]["T"]
+g = P.gradient(pr, order=(1, 0), side="T", polarisation="p", fd_check=True)
+print(P.convergence(pr))                                 # efficiencies at more orders
+```
+
+Python, the solver directly (gradients of any objective through autograd):
+
+```python
+import math, torch
+from spectra_rcwa import ColorRouterForward, Ray, Stack
+
+stack = Stack(period_um=(1.0, 1.0), thickness_um=0.5, density_shape=(512, 1), fourier_orders=(20, 0), eps_design=4.0)
+fwd = ColorRouterForward(stack=stack, rays=[Ray(math.radians(10.0), 0.0, 1.0)], wavelengths_nm=[633.0], dtype=torch.complex128)
+x = torch.arange(512) / 512
+rho = ((x >= 0.25) & (x < 0.75)).double()[:, None].requires_grad_()
+T, R = fwd.efficiencies([(rho, 0.5)])
+T[0, 21, 0].backward()                                   # +1 order, p; rho.grad
+```
+
+## Recipes
+
+- **Efficiencies of a single patterned layer**: `fwd.efficiencies([(density, thickness_um)])`. `stack.thickness_um` is used only by `response`.
+- **Several wavelengths and directions**: pass them all to one `ColorRouterForward` (`wavelengths_nm=[...]`, `rays=[Ray(...), ...]`); they are solved as one batch. `Ray.weight` matters only for `response`. A `Ray` angle is given in a reference medium of index `reference_index` (default 1) and refracted into the superstrate, so set `reference_index` to the superstrate index to give the angle inside it.
+- **Multilayer**: `fwd.efficiencies([(rho_a, d_a), (rho_b, d_b), ...])`, top first; all patterned layers share `eps_design` and `eps_fill`. A uniform layer is density 0 or 1. A layer of other materials: build a second `ColorRouterForward` with the same lattice, orders, rays and wavelengths and other `eps_design` / `eps_fill`, take `block = other.layer_block(rho, d)` under `torch.no_grad()` and put `block` in the list. A stored block can be reused as long as that layer does not change. `MultiLayerForward` gives the detector quadrant powers of a stack.
+- **Thick layers**: nothing to set. A layer is cut in steps with ωh max(k) ≤ 4.5, and from 7 steps on goes through its S-matrix by doubling.
+- **Gradients**: make the density `requires_grad_()`, compute any scalar from T and R (or Tabs from `response`), call `backward()`. The gradient comes from one adjoint field, not from a graph of the solve. `value_and_grad(fwd, density, objective)` does this for `response`. In a loop, drop the outputs of the previous evaluation before the next forward pass, or two sets of factors are held in memory.
+- **Precision**: `dtype=torch.complex128` for reference values and for finite-difference checks (energy error about 1e-12); `torch.complex64` on a GPU for speed (efficiency and gradient errors about 1e-6 to 1e-5). Keep `torch.backends.cuda.matmul.allow_tf32` off (torch's default): TF32 costs up to 8e-2 in the gradient.
+- **Size**: the layer matrices are 2(2M + 1)(2N + 1) square. On a CPU, sizes up to a few hundred take milliseconds to seconds per solve; above about 1000, use a GPU. `chunk=` bounds the solves per batch when GPU memory is short.
+
+## Validate before quoting numbers
+
+1. Energy: for a lossless stack, sum(T) + sum(R) = 1 to about 1e-12 in double and 1e-5 in single precision (`checks.energy_error` in `solve`). A larger error means a malformed input or a solve next to a Rayleigh point.
+2. Convergence in the orders: repeat with about 1.5 and 2 times the orders (`convergence_in_orders`, `P.convergence`) and report the change as the truncation error. Metals and high-index contrast need many orders.
+3. Convergence in the grid: the density is sampled, and an edge moves by up to one sample. For a lamellar grating, 512 samples per period gave efficiencies within 4e-5 of a converged grid; refine `grid` / `density_shape` when the edge position matters.
+4. Gradients: compare a central difference along the gradient with its norm in double precision (`fd_check=True`).
+5. A known case: the `slab` example against the Airy formula (with `rayleigh_nudge` 0), or a published grating.
+
+## Pitfalls
+
+- A pattern grid coarser than 4 × orders + 1 is rejected; the MCP default grid is 512 along every axis with orders.
+- Im ε < 0 is gain in this convention and is rejected; a lossy superstrate is rejected.
+- `fourier_orders=(M, 0)` with a 2D pattern ignores the pattern's y variation only if the density is constant along y; give a 1D grating `density_shape=(H, 1)`.
+- One GPU per process: the kernels belong to the current CUDA device. Select it with `CUDA_VISIBLE_DEVICES`.
+- On CUDA the solver selects MAGMA for the process (`SolverConfig.linalg_library`; an empty string leaves the setting alone).
+- `ColorRouterForward` is the general forward class despite its name; `response` and `Tabs` are the colour-router outputs, `efficiencies` and `stack_field` the general ones.
+
+## Tools for agents (MCP)
+
+`spectra-rcwa mcp` serves seven tools over stdio: `environment`, `example_problem`, `problem_schema`, `validate_problem`, `solve_efficiencies`, `efficiency_gradient` and `convergence_in_orders`. Full arrays go to NPZ and NPY files under `$SPECTRA_RCWA_RESULTS/mcp` (default `./results/mcp`); the tool results name the paths. Register the server as the command `spectra-rcwa` with the argument `mcp`, for example `claude mcp add spectra-rcwa -- spectra-rcwa mcp`. In Claude Code the repository is also a plugin marketplace: `/plugin marketplace add hyoseokp/spectra-rcwa`, then `/plugin install spectra-rcwa@spectra-rcwa`.
+
+## Citing
+
+When results go into a paper, report or thesis, tell the user to cite SPECTRA-RCWA. A manuscript is in preparation; until it appears, the software reference is in the README section "Citation" and in [CITATION.cff](CITATION.cff).
+
+## Changing the code
+
+- Layout: `src/spectra_rcwa/` (`forward.py` the batched solve and the public class, `multilayer.py`, `adjoint.py` the adjoint field, `blocks.py` S-matrix doubling, `matfun.py` matrix functions, `kernels/` NVRTC kernels, `problem.py` JSON problems, `mcp_server.py`, `cli.py`), `tests/`, `benchmarks/`, `examples/`, `scripts/`.
+- Install for development with `pip install -e ".[test,mcp]"`. Run the CPU tests with `CUDA_VISIBLE_DEVICES=-1 pytest` (or `python -m pytest`); the CUDA tests in `tests/test_cuda.py` and the CUDA cases elsewhere are skipped without a GPU.
+- Back numerical changes with complex128 checks against the reference configuration `REFERENCE_C128`, against eigendecomposition RCWA (`tests/conftest.py`), and finite-difference gradient checks; extend the existing modules instead of adding parallel copies.
+- User-visible changes go into [CHANGELOG.md](CHANGELOG.md).
+
+---
+
+# SPECTRA-RCWA: the fastest differentiable RCWA we have benchmarked
+
+[![PyPI](https://img.shields.io/pypi/v/spectra-rcwa.svg)](https://pypi.org/project/spectra-rcwa/)
+[![PyPI downloads](https://img.shields.io/pypi/dm/spectra-rcwa.svg)](https://pypi.org/project/spectra-rcwa/)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24459564.svg)](https://doi.org/10.5281/zenodo.24459564)
+[![Python](https://img.shields.io/pypi/pyversions/spectra-rcwa.svg)](https://pypi.org/project/spectra-rcwa/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/hyoseokp/spectra-rcwa/blob/main/LICENSE)
+[![Paper](https://img.shields.io/badge/paper-in%20preparation-lightgrey.svg)](#citation)
+
+**Eigendecomposition-free, GPU-batched RCWA with adjoint gradients: 144 solves with gradients in 0.23 s on one RTX 5090, up to 65x faster than TorchRDIT at matched accuracy and 218x faster than torcwa.**
+
+![Figure 1](https://raw.githubusercontent.com/hyoseokp/spectra-rcwa/main/docs/figures/fig1_concept.png)
+
+**Figure 1: One objective over many wavelengths, angles and polarisations as one batch of matrix products, with no eigendecomposition.** (a) A periodic stack of patterned layers, each cut into steps of thickness h. All wavelengths, incidence angles and both polarisations of an objective are solved as one batch; the admittance Y is swept up the stack and the adjoint field down it, which gives the gradient with respect to every pattern value. (b) Modal RCWA diagonalises the layer matrix A = PQ, one solve at a time, as VΛV⁻¹; its propagation constants are square roots of the eigenvalues λ, which are singular at the cutoff of an order (λ = 0), and so is the gradient. (c) SPECTRA-RCWA forms C = cos(ωhA^(1/2)), S = sin(ωhA^(1/2))/A^(1/2) and G = (C − I)/A for all B solves at once by matrix products (scaling, a polynomial and double-angle steps). These are entire functions of A, smooth at the cutoff. On one RTX 5090, 144 solves with 578 x 578 layer matrices give value and gradient in 0.23 s, 47 to 65 times faster than TorchRDIT at matched accuracy and 218 times faster than torcwa.
+
+![Speed comparison](https://raw.githubusercontent.com/hyoseokp/spectra-rcwa/main/docs/figures/speed_comparison.png)
+
+**Figure 2: Time for one inverse-design evaluation (value and gradient of 144 solves, 578 x 578 layer matrices) on one RTX 5090.** Each ratio compares codes on the same problem: torcwa on a 0.8 µm layer with 128 x 128 design values, TorchRDIT on a 0.25 µm layer with 64 x 64 design values (SPECTRA-RCWA 0.23 s there) at matched accuracy. S4 gives the value alone, on 12 CPU cores. Drawn by `scripts/make_speed_bar.py` from `benchmarks/results/`.
+
+| value and gradient, one RTX 5090 | SPECTRA-RCWA | TorchRDIT 0.2.0 | torcwa 0.1.4.2 | S4 (value only) |
+|---|---|---|---|---|
+| 0.25 µm layer, 64 x 64 design values, 144 solves | **0.23 s** | 10.9 s (R-DIT order 15, one slice) | | |
+| 1 µm layer, 64 x 64 design values, 144 solves | **0.30 s** | 19.4 s (R-DIT order 20, 0.25 µm slices set by hand) | | |
+| 0.8 µm layer, 128 x 128 design values, 144 solves | **0.252 s** | | 54.8 s | 529 s on 12 CPU cores |
+| gradient error, 0.8 µm layer (grey design) | **2.7e-6** | | 5.9e-3 | no gradient |
+
+All runs use (8, 8) Fourier orders (578 x 578 layer matrices) and 144 solves (16 incidence directions x 9 wavelengths), each for both polarisations; the GPU codes run in complex64, and S4 gives the value alone, on an Intel i7-12700. The value errors of TorchRDIT in its two rows are 8.4e-6 and 3.7e-5, those of SPECTRA-RCWA 3.6e-6 and 5.2e-6; with one slice at 1 µm, TorchRDIT is wrong by more than 100. Records: `benchmarks/results/`.
+
+SPECTRA-RCWA is an open-source (MIT) solver for periodic layered structures by rigorous coupled-wave analysis (RCWA, also called the Fourier modal method, FMM) that needs no eigendecomposition. It is written in PyTorch, runs many solves as one batch on a GPU (or on the CPU), and returns diffraction efficiencies, fields and the gradient of any objective with respect to every pixel of the pattern from one adjoint field. Use it to simulate and optimise diffraction gratings, metagratings, metasurfaces, photonic-crystal slabs, thin-film stacks and colour routers, in particular when an inverse design needs value and gradient over many wavelengths and incidence angles, for thick or multilayer patterns, or near the cutoff of a diffraction order, where eigendecomposition gradients fail.
+
+If SPECTRA-RCWA is useful to you, a GitHub star helps other researchers find it.
+
+```bash
+pip install spectra-rcwa            # or, from source: pip install git+https://github.com/hyoseokp/spectra-rcwa
+pip install "spectra-rcwa[mcp]"     # adds the MCP server for AI agents (spectra-rcwa mcp)
+```
+
+```python
+import math, torch
+from spectra_rcwa import ColorRouterForward, Ray, Stack
+
+# lamellar grating: index-2.0 ridges in air, period 1 um, depth 0.5 um, fill factor 0.5; 633 nm at 10 degrees; 41 orders
+stack = Stack(period_um=(1.0, 1.0), thickness_um=0.5, density_shape=(512, 1), fourier_orders=(20, 0), eps_design=4.0)
+fwd = ColorRouterForward(stack=stack, rays=[Ray(math.radians(10.0), 0.0, 1.0)], wavelengths_nm=[633.0], dtype=torch.complex128)
+x = torch.arange(512) / 512                                     # sample positions in periods
+rho = ((x >= 0.25) & (x < 0.75)).double()[:, None].requires_grad_()   # density: 1 = ridge, 0 = air
+T, R = fwd.efficiencies([(rho, 0.5)])                           # [solves, orders, (p, s)]; order m at index m + 20
+print(T[0, 21], T.sum(1) + R.sum(1))                            # +1 order (0.4408, 0.2656); T + R = 1 for a lossless grating
+T[0, 21, 0].backward()                                          # rho.grad: d(+1 order, p) / d(density)
+```
+
+Measured (complex64 on one RTX 5090 unless named; records in `benchmarks/results/`):
+
+* 144 solves with 578 x 578 layer matrices (16 incidence directions x 9 wavelengths, both polarisations, (8, 8) orders) give the value and the gradient with respect to all 64 x 64 design values of a 0.25 µm layer in 0.23 s.
+* Against TorchRDIT 0.2.0 on the same problems and GPU, at matched accuracy: 47 times faster for a 0.25 µm layer and 65 times for 1 µm, with one third to one half of the peak GPU memory (6.0 against 18.9 GiB, 8.4 against 14.0 GiB). TorchRDIT's one-slice series is wrong beyond about 0.3 µm of thickness (relative errors above 100 at 1 µm) and needs slices chosen by hand; SPECTRA-RCWA needs no setting for the thickness.
+* On a 144-solve evaluation with 128 x 128 design values (a 0.8 µm layer, 16 directions x 9 wavelengths), value and gradient take 0.252 s, 218 times less than torcwa (54.8 s) on the same GPU. The gradient agrees with a complex128 reference to 2.7e-6, and to 3.8e-5 on a layer with an order at cutoff, where torcwa's gradient is wrong by 0.49.
+
+Agents: read [AGENTS.md](https://github.com/hyoseokp/spectra-rcwa/blob/main/AGENTS.md), or run `spectra-rcwa mcp` for tools that set up, check and solve a grating problem ([llms.txt](https://github.com/hyoseokp/spectra-rcwa/blob/main/llms.txt)).
+
+[How it works](#what-it-does) · [Install](#install) · [Efficiencies](#diffraction-efficiencies) · [Scope and conventions](#scope-and-conventions) · [Speed and accuracy](#speed-and-accuracy) · [Agents and MCP](#ai-agents-and-mcp) · [Citation](#citation)
+
+SPECTRA-RCWA stands for a spectral propagation engine for coupled-wave theory with recursive admittance.
+
+## What it does
+
+Classical RCWA diagonalises the layer matrix A = PQ and builds the layer S-matrix from the eigenvectors W and
+the eigenvalues kz². The S-matrix never needs the eigenvectors themselves: every expression W f(kz) W⁻¹ is a matrix function
+of A. Since the fields obey e′ = iωPh and h′ = iωQe (z downward), a step h of a layer needs only functions that are entire
+in A, with no square root:
+
+    C = cos(ωh A^(1/2)),   S = sin(ωh A^(1/2)) / A^(1/2),   G = (C − I) / A
+    e(0) = C e(h) − iS P h(h),   h(0) = −iQS e(h) + (I + QGP) h(h)
+
+From the output medium upwards, with h(h) = Y e(h):
+
+    D = (C − iSPY)⁻¹,   e(h) = D e(0),   Y_top = (Y + QGPY − iQS) D
+
+This package computes
+
+* **C, S and G** by scaling, a degree-6 polynomial in A (Paterson–Stockmeyer, four GEMMs) and double-angle steps on C − I, which unlike
+  steps on C lose no digits while the argument is small: GEMMs only (`spectra_rcwa.matfun.cos_sinc`);
+* **the recursion** with one batched pivoted inverse per step and an output-to-input pass over two right-hand sides. An evanescent
+  order makes C and S large, so a layer is cut in steps with ωh max(k) at most 4.5 (`SolverConfig.max_step_phase`): 3 steps for
+  0.25 µm at (8, 8) orders;
+* **for a layer of 7 steps or more** (`SolverConfig.block_from_steps`; 0.8 µm at (8, 8) orders) its S-matrix instead: one thin step in the
+  wave basis of a fixed reference admittance, then Redheffer products of the layer with itself, r doublings for 2^r steps with
+  r + 1 inverses (`spectra_rcwa.blocks`);
+* **the gradient from one adjoint field** (`spectra_rcwa.adjoint`), with no graph. The objective needs the field for two incident polarisations only, and for a variation of P and Q
+
+      dJ = Re ∫ iω (a^H dP h + b^H dQ e) dz,   a' = iω Q^H b,   b' = iω P^H a
+
+  with a = V_i^H b at the top of the stack and a + V_o^H b = dJ/d(field below) at its bottom. The factors saved by the forward pass give (e, h) and (a, b) on the planes between the steps, stable in both directions, in products with
+  two columns; a short Taylor series from each plane gives them on Gauss–Legendre nodes, and the integral is a low-rank sum;
+* **P and Q by structure**: P = J + K_L E⁻¹ K_R and Q = −K_L K_R + [[0, −E], [E, 0]] with K_R K_L = 0, so A = PQ needs two GEMMs of a quarter of the size, a product with P costs a quarter of a dense GEMM and one with Q half of it. The elementwise parts run as single NVRTC passes (`spectra_rcwa.kernels`).
+
+There is no eigensolver, no square root, no branch choice and no P⁻¹. All solves of an evaluation go into one batch on the GPU,
+the gradient has neither 1/(λi − λj) nor 1/√λ terms, and a layer order at cutoff (λ near 0) needs no special handling. In complex128 the adjoint field agrees with autograd through the same forward pass to about 1e-14.
+`AUTOGRAD_ROUTE` switches off the adjoint field, for comparison: autograd through dense P and Q (the products by structure run without a graph only), pivoted inverses, degree 8, the route of the commit before them.
+
+### Thick layers and stored layers
+
+A layer's S-matrix depends on that layer alone, so it can be kept, for instance for a layer stack below a design that does not change:
+
+```python
+with torch.no_grad():                                  # a stored layer needs no graph
+    pd = fwd.layer_block(rho_pd, 3.0)                  # (T, R), each [solves, 2N, 2N], in a fixed reference basis
+below = fwd.stack_field([(rho_a, 0.25), (rho_b, 0.25), pd])                  # field below the stack, [solves, 2N, 2]
+below, top = fwd.stack_field([(rho_a, 0.25), pd], return_top=True)           # and at the top of it
+```
+
+The reference medium is a fictitious lossy one (ε = 4 + 4i), so I − RR has no real pole at a guided mode of the layer and no order has a
+Rayleigh point in it, unlike a vacuum basis. Both routes against complex128 through Γ with 14 iterations, which they match to 6.5e-13 in complex128
+(complex64; RTX 5090; (8, 8) orders, 540 nm; errors for one ray, time and memory for 16 rays in one batch):
+
+| layer | route | value error | gradient error | T and R error | time per solve (ms) | memory per solve (MiB) |
+|---|---|---|---|---|---|---|
+| SiN 0.8 µm | recursion, 7 steps | 1.4e-08 | 3.2e-05 | 1.1e-06 | 5.5 | 59 |
+| SiN 0.8 µm | doubling, 8 steps | 7.5e-08 | 9.1e-06 | 5.6e-06 | 3.2 | 48 |
+| SiN 1.5 µm | recursion, 12 steps | 2.0e-08 | 3.3e-05 | 2.4e-06 | 9.3 | 96 |
+| SiN 1.5 µm | doubling, 16 steps | 1.3e-09 | 1.2e-05 | 5.6e-07 | 3.6 | 61 |
+| SiN 3 µm | recursion, 24 steps | 1.0e-07 | 5.8e-05 | 4.9e-06 | 16.6 | 172 |
+| SiN 3 µm | doubling, 32 steps | 2.9e-08 | 2.9e-05 | 1.9e-06 | 4.0 | 80 |
+| Si (ε = 17.1 + 0.28i) with a 0.2 µm oxide trench, 3 µm | recursion, 24 steps | 1.7e-07 | 5.8e-05 | 1.6e-05 | 16.8 | 172 |
+| Si (ε = 17.1 + 0.28i) with a 0.2 µm oxide trench, 3 µm | doubling, 32 steps | 8.8e-09 | 7.7e-05 | 5.1e-06 | 4.1 | 80 |
+
+The absorbing layer has A = 0.7149 and 0.7143 (reference 0.7149 and 0.7143) for the two polarisations, with A = 1 − T − R from the fluxes; in the lossless layers
+that A is at most 5.6e-06. Central differences of complex128 along the adjoint gradient at 3 µm: 0.0094546 against its norm 0.0094544 (SiN, recursion), 0.0094546 against 0.0094545 (SiN, doubling), 0.0051844 against 0.0051847 (Si, doubling).
+Per solve, doubling is faster from about 3 steps on (6.5 against 5.6 ms at 3 steps and 10.0 against 6.5 ms at 7, in a stack of two), but it keeps more matrices for the gradient: 8 layers of 0.25 µm through doubling do not fit in 32 GB at 144 solves, so a layer goes through its S-matrix from 7 steps on. The two Si rows were measured with 6 quadrature nodes per step in the gradient; from version 1.0.0 the node count follows ωh|ε|^(1/2), and those two cases use 10.
+
+### Option: the route through Γ, before the patch
+
+`SolverConfig(boundary="direct", boundary_inverse="block")` is the earlier route, before the entire functions, kept as an option and as a check, and `boundary="smatrix"` with `REFERENCE_C128` its converged
+complex128 reference. Γ = A^(1/2) (branch Im kz ≥ 0) comes from the product form of the Denman–Beavers iteration with norm scaling
+μ = (‖M⁻¹‖ / ‖M‖)^(1/4), the exact identity Y₀M₀⁻¹ = I in the first step, and a third-order series for M^(−1/2) at the end (4 batched
+inverses plus GEMMs); E = exp(iωdΓ) from scaling and squaring with a degree-18 Taylor polynomial; the boundary conditions from a
+2 x 2 block system eliminated with two inverses and an adjoint written by hand with O(n²r) work beyond the saved inverses
+(r = 2 polarisations). The CUDA path adds hand-written backward passes for the Denman–Beavers steps and the squarings, NVRTC-compiled
+fused kernels for linear combinations and for K_i = P Y_i, K_o = P Y_o, a sync-free pivoted batched LU, and a block-recursive (GEMM-only)
+inverse for the well-conditioned matrices (`spectra_rcwa.kernels`). Everything falls back to plain PyTorch on the CPU.
+
+This route is not reliable at an order at cutoff, because Γ is not analytic at λ = 0. Value and gradient are smooth there only through
+cancellations: if P has the small singular value (about |λ|), the adjoints of P through A = PQ and through K = PY each grow as 1/|λ| and
+sum to O(1). That needs Γ² = PQ far below the rounding error of a complex64 A, so computing Γ and E alone in complex128 does not help,
+and an iteration converged for λ, which 4 Denman–Beavers steps are not at any precision; with a small complex pair of eigenvalues 4 steps
+give a wrong value with no sign of it (T = 0.76 where the converged value is 0.96). The relative gradient error grows as 1/λ². On an 8-layer
+design about one layer solve in 288 has ‖A⁻¹‖_F above 1e6, and such a solve can dominate the gradient of the whole evaluation. That is why the default changed. Default route (this work) against the route through Γ on an RTX 5090:
+
+| design | route | value + gradient (s) | peak memory (GiB) | value error | gradient error (rel. L2) |
+|---|---|---|---|---|---|
+| grey, 144 solves, the objective | default | 0.253 | 6.6 | 3.2e-06 (Tabs) | 2.7e-06 |
+| same | through Γ | 0.436 | 15.9 | 6.8e-06 (Tabs) | 7.2e-04 |
+| binary, 144 solves, the objective | default | 0.264 | 6.6 | 3.4e-06 (Tabs) | 8.2e-06 |
+| same | through Γ | 0.434 | 15.9 | 6.3e-06 (Tabs) | 4.3e-03 |
+| one layer of an 8-layer SiN/SiO2 design, 0.25 µm, 144 solves, the objective, with a solve at ‖A⁻¹‖_F = 4.5e6 | default | 0.201 | 5.3 | 1.2e-06 (Tabs) | 3.8e-05 |
+| same | through Γ | 0.408 | 14.8 | 7.7e-06 (Tabs) | 5.1e-01 |
+| that 8-layer design, `MultiLayerForward`, random weights on Tabs, 16 rays at 420 nm | default | 0.31 | 3.0 | 8.2e-06 | 3.2e-05 |
+| same | through Γ, no TF32 | 1.7 | 15.2 | 1.6e-05 | 1.2e-02 |
+
+On the third case, central differences of complex128 along the gradient give 0.000665 against its norm 0.000665 for the reference, 0.000665 against 0.000665 for the default route, and 0.000603 against 0.000793 for the route through Γ.
+
+Older measurements, kept in `benchmarks/results/summary.json`: the route through Γ on an H200 (0.386 s complex64, 0.822 s complex128) and an RTX 5880 Ada (0.858 s); not measured again on those.
+
+## Install
+
+```bash
+pip install spectra-rcwa              # or pip install git+https://github.com/hyoseokp/spectra-rcwa
+pip install "spectra-rcwa[mcp]"       # the MCP server for agents
+```
+
+From a checkout:
+
+```bash
+pip install -e .            # torch >= 2.6 and numpy; complex64 on CUDA needs torch >= 2.8
+pip install -e ".[test]"    # pytest
+pip install -e ".[figures]" # matplotlib, for scripts/make_figures.py
+```
+
+The NVRTC kernels of the complex64 CUDA path use `torch.cuda._compile_kernel` (torch 2.8 or newer; tested with 2.10.0), and the CPU and complex128 run on plain torch; the torch wheel is enough, no CUDA toolkit or `CUDA_HOME` is needed. If the cuBLAS library that
+torch loaded is not found automatically, set `SPECTRA_RCWA_CUBLAS` to its path.
+
+## Minimal example
+
+```python
+import torch
+from spectra_rcwa import ColorRouterForward, Stack, shifted_disk_pupil, value_and_grad
+
+stack = Stack(period_um=(2.0, 2.0), thickness_um=0.8, density_shape=(64, 64), fourier_orders=(4, 4),
+              eps_design=2.05 ** 2, eps_fill=1.0, eps_in=1.0, eps_out=1.46 ** 2, detector_z_um=1.25)
+rays = shifted_disk_pupil(numerical_aperture=0.30, chief_ray_angle_deg=2.5, chief_ray_azimuth_deg=22.5)
+fwd = ColorRouterForward(stack=stack, rays=rays, wavelengths_nm=(450.0, 540.0, 630.0))     # on the GPU if there is one
+
+density = torch.rand(64, 64)
+tabs = fwd.response(density.to(fwd.device))   # Tabs[well (R, G2, G1, B), wavelength], float64, differentiable
+target = torch.eye(4, 3, dtype=torch.float64)
+tabs, value, grad = value_and_grad(fwd, density, lambda t: (t * target).sum())
+```
+
+`examples/minimal.py` runs a smaller case of it on CPU or GPU. Permittivities can be numbers or functions of the wavelength
+in µm. `SolverConfig` holds the solver options; `DEFAULT` is the configuration used for every number below, and
+`REFERENCE_C128` is a converged complex128 configuration used as the accuracy reference.
+
+### Diffraction efficiencies
+
+`ColorRouterForward.efficiencies(layers)` returns (T, R), the power in every diffraction order of the substrate and of the superstrate over
+the incident power, `[solves, N, 2]` with one column per incident polarisation, for any stack that `stack_field` takes; `stack_field` itself
+returns the tangential electric field below and on top of the stack. Tabs, the table of the four detector quadrants, is the output that the
+colour-router objective uses.
+
+```python
+t, r = fwd.efficiencies([(rho_a, 0.25), (rho_b, 0.25)])      # order (m, n) at index (m + M) * (2 N + 1) + (n + N)
+```
+
+### Scope and conventions
+
+* Rectangular lattices with periods along x and y. The two periods, the two order counts and the two sides of the design grid can differ, and
+  `fourier_orders=(M, 0)` is a 1D grating. All (2M + 1)(2N + 1) orders are kept, and the permittivity enters by the Laurent rule with E⁻¹ in P,
+  as in torcwa, so metals and other high-contrast patterns converge slowly in the orders.
+* A pattern mixes two isotropic, non-magnetic materials linearly through the density, and `MultiLayerForward` uses the same two in every layer; a
+  uniform layer is density 0 or 1. A layer of other materials goes into `stack_field` as the `layer_block` of a second forward with the same
+  lattice, orders, rays and wavelengths.
+* The time dependence is exp(−iωt), so absorption is Im ε > 0. Lengths are in µm, wavelengths in nm and `Ray` angles in radians (polar angle from
+  z in the reference medium, azimuth from x). Light comes from the superstrate, which is lossless. The two columns of a field are the
+  polarisations p cos φ − s sin φ and p sin φ + s cos φ, which are x and y at normal incidence.
+* `density[i, j]` is the sample at x = iΛx/H, y = jΛy/W (band-limited samples, first index along x), with H and W at least 4 × orders + 1.
+  The detector samples sit at (k + 0.5)Λ/S, and a well is its share of |E|² on the detector plane, a midpoint rule on `detector_samples`, times the
+  total transmission.
+* Every solve runs at the frequency (1 + `rayleigh_nudge`)/λ, 1e-4 by default, so that no order of the half-spaces sits on a Rayleigh point; π is
+  torcwa's 3.141592652589793, to match it digit for digit.
+* On CUDA the solver selects MAGMA for the process (`SolverConfig.linalg_library`; an empty string leaves the setting alone) and expects TF32
+  products off, which is torch's default. One GPU per process: the kernels belong to the current CUDA device.
+* The factors of a solve live as long as its graph. In a loop, drop the outputs of the last evaluation (`del tabs, loss`, or evaluate inside a
+  function, as `value_and_grad` does) before the next forward; otherwise two sets of factors are held at once.
+
+### Multi-layer stack
+
+`MultiLayerForward(thicknesses_um=(...), ...)` stacks several patterned layers (density `[layers, H, W]`), with the admittance
+recursion above running through all of them. The tests check that one layer equals the direct boundary solve and that two layers of
+thickness d/2 equal one layer of thickness d. With the routes through Γ the layers are combined by Redheffer products in a vacuum gap basis,
+which puts real poles at guided modes of the layers. `chunk` bounds the solves per batch, and `responses` takes several stacks `[S, layers, H, W]`.
+
+On an RTX 5090, value + gradient for 2 µm of total thickness, 144 solves in one batch unless named, the objective:
+
+| layers | layer thickness (µm) | solves per chunk | value + gradient (s) | peak memory (GiB) |
+|---|---|---|---|---|
+| 1 | 2 | 144 | 0.371 | 10.8 |
+| 2 | 1 | 144 | 0.651 | 15.3 |
+| 4 | 0.5 | 144 | 1.05 | 20.2 |
+| 8 | 0.25 | 144 | 1.47 | 26.8 |
+
+A real 8-layer design of 128 x 128 per layer takes 1.47 s and 26.8 GiB for 144 solves. Its exact mirrors (i to 128 − i on the design grid, and x and y exchanged), with the rays and wells mirrored, give the same Tabs to 6.5e-06.
+
+## Speed and accuracy
+
+One evaluation = a colour-router objective on Tabs (not part of this package) and its gradient with respect to all 128 x 128 density values, 16 rays (NA 0.30,
+CRA 2.5°) x 9 wavelengths = 144 solves, each for both polarisations, (8, 8) Fourier orders (578 x 578 layer matrices), 800 nm SiN layer, grey design unless named, complex64. Errors are against complex128 through Γ with 14 iterations, solved one ray at a time.
+
+| | S4 (CPU) | torcwa (GPU) | **this work (GPU)** |
+|---|---|---|---|
+| hardware | i7-12700, 12 processes | RTX 5090 | RTX 5090 |
+| value (s) | 529 | 25.5 | **0.217** |
+| value, speed-up against S4 on 12 processes | 1x | 21x | **2,440x** |
+| value + gradient (s) | no gradient | 54.8 | **0.252** |
+| value + gradient, against this work | | 218x | 1x |
+| per solve, value + gradient (ms) | | 381 | **1.75** |
+| peak GPU memory (GiB) | | 4.8 | **6.6** |
+| Tabs error (max rel.), grey | 3.4e-02 from torcwa | 8.9e-06 | **3.2e-06** |
+| gradient error (rel. L2), grey | | 5.9e-03 | **2.7e-06** |
+| gradient error, binary | | 7.2e-02 | **8.2e-06** |
+| gradient error, a layer with an order at cutoff | | 4.9e-01 | **3.8e-05** |
+
+All measured. S4 was run once, on the CPU named, and gives the value only: 5238 s in a single process (24,100x against this work, 2,440x on 12 processes, on different hardware); it agrees with torcwa on the transmission to 1.7e-04. torcwa runs its solves one by one, each polarisation separately, with torch's default linear algebra library, 4 CPU threads for the eigendecomposition (the thread count hardly matters: 25.5 to 25.7 s at 16), and a checkpoint per wavelength for the gradient: the graph of 288 solves would hold 41 GiB. Sharing the eigendecomposition between the polarisations brings its value to 13.4 s, but that path is not differentiable. With MAGMA selected for the whole process, as the default route of this package does, its value pass takes 80.6 s. In complex128, in chunks of 24 solves, this work takes 16.9 s and gives the objective to 7.1e-15.
+
+TF32 costs far more accuracy than time at every stage of this route (worst gradient error of six cases, against 7.7e-05 without): cos sin 1.1e-02 at 237 ms, thin step 8.0e-02 at 246 ms, doubling 1.8e-02 at 208 ms, below block 3.4e-04 at 247 ms, inverses 1.1e-02 at 243 ms, adjoint planes 1.5e-03 at 253 ms, adjoint integral 3.3e-04 at 253 ms, adjoint whole 2.7e-03 at 251 ms, against 253 ms, so it is off. The six cases are grey, binary, the layer at cutoff, the 8-layer design, 3 µm of SiN and 3 µm of Si with a trench.
+
+### Single solve
+
+Value + gradient per polarisation, complex64 on the RTX 5090. One solve of torcwa takes 95 ms and of this work, for both polarisations, 34 ms; in the batch a solve costs 1.75 ms.
+
+![single solve](https://raw.githubusercontent.com/hyoseokp/spectra-rcwa/main/docs/figures/single_solve.png)
+
+### Where the time goes
+
+![stage breakdown](https://raw.githubusercontent.com/hyoseokp/spectra-rcwa/main/docs/figures/stage_breakdown.png)
+
+One evaluation of the 800 nm layer on the RTX 5090 (forward 220 ms, gradient 32 ms).
+
+### Hardware
+
+* **RTX 5090** (32 GB), AMD Ryzen 9 7950X 16-Core Processor, torch 2.10.0+cu128, driver 595.91.07: every number of this work and torcwa 0.1.4.2 above, unless named otherwise.
+* **RTX 4090** (24 GB), same torch: the same evaluation takes 0.391 s (0.297 s for the value) and 6.6 GiB, gradient error 2.7e-06; 8 layers, 144 solves, in chunks of 36 (a value pass, then a forward and gradient pass per chunk) take 4.76 s and 13.1 GiB (`benchmarks/results/rtx4090.json`).
+* **S4** (Python extension built from source with OpenBLAS), Ubuntu 22.04 under WSL2 on an i7-12700 (12 cores).
+
+## Tests
+
+```bash
+pytest
+```
+
+CPU tests (complex128 and complex64): the entire functions, matrix square root and exponential against eigendecomposition and
+`torch.linalg.matrix_exp`; hand-written backward of the Denman–Beavers step and of the squarings against
+autograd; block-recursive inverse; direct boundary solve against the reference formula, the S-matrix route and
+eigendecomposition RCWA (air and glass superstrate); its adjoint against autograd and `gradcheck`; one layer
+equals two half layers; full response against eigendecomposition RCWA; central finite-difference gradient checks
+in complex128 (single and multi-layer); solves tuned to an eigenvalue 1e-6 with P or with Q nearly singular (one layer, a stack, a batch with
+one such solve), against complex128 on both sides of the cutoff. CUDA tests (fused kernels against torch, pivoted and block inverses,
+hand-written backward on the GPU, complex64 GPU response and a solve at cutoff against the complex128 CPU reference) are skipped
+without a GPU. `tests/test_adjoint.py`: the adjoint field against autograd in complex128 (recursion, doubling, stacks, both outputs of a solve, stored blocks) and complex64, on the CPU and the GPU, the kernels, and the exact mirrors of the lattice in a batch of 48 solves. `tests/test_general.py`: diffraction efficiencies against energy conservation and the Airy formula of a slab, a rectangular cell with unequal orders and a 1D grating, the adjoint for a layer index above the largest transverse wave vector, the checks on the arguments, chunks, the energy guard, and large matrices after `torch.set_num_threads`.
+
+`torch.linalg.solve_triangular` gives wrong results for a complex64 batch of 16 or more with the factors of a matrix that needs pivoting (residual about 7 instead of 1e-3; 578 x 578, torch 2.10.0+cu128, RTX 5090, with the library set to MAGMA or left at its default; a batch of 8 or less is right, and so are diagonally dominant matrices). The routes here do not call it: `spectra_rcwa.kernels.pivlu.lu_solve` has its own triangular solves. `tests/test_cuda.py` measures the residual of every batched solver the routes use at a batch of 144 and 288, and keeps this case as an expected failure.
+
+## Reproducing the benchmarks
+
+`benchmarks/results/` holds the measurements behind the tables and figures here: `rtx5090.json` and `rtx5090_stages.json` for this work (`rtx4090*.json` on the RTX 4090), `rtx5090_torcwa.json`, `summary.json` for S4 and the older measurements, `route_through_gamma_failures.json` for the failure described above, `solve_triangular_residuals.json` for the note on `solve_triangular`, and `torchrdit_rtx5090_025um.json` and `torchrdit_rtx5090_1um.json` for the comparison with TorchRDIT 0.2.0 at the top of this page. They were measured with a colour-router objective, design files and comparison code that are not distributed here. `python scripts/make_figures.py` regenerates `docs/figures/` from these files.
+
+`benchmarks/bench_synthetic.py` runs a problem of the same size (144 solves, (8, 8) orders, 128 x 128 design values, 0.8 µm layer) on a synthetic freeform pattern with a fixed linear objective, using nothing outside this package, and reports time, peak memory and the error against complex128 for one ray:
+
+```bash
+cd benchmarks
+python bench_synthetic.py results/synthetic.json            # on the GPU if there is one
+python bench_synthetic.py synthetic_small.json --small      # a small case for a CPU
+```
+
+## AI agents and MCP
+
+[AGENTS.md](https://github.com/hyoseokp/spectra-rcwa/blob/main/AGENTS.md) tells an agent when the package fits, how to set up a problem, how to check it and which pitfalls to avoid; [llms.txt](https://github.com/hyoseokp/spectra-rcwa/blob/main/llms.txt) and [llms-full.txt](https://github.com/hyoseokp/spectra-rcwa/blob/main/llms-full.txt) are the same material for language models. The command line takes problems as JSON:
+
+```bash
+spectra-rcwa example lamellar_grating > grating.json     # also pillar_array, slab, two_layer_grating
+spectra-rcwa check grating.json                          # errors, warnings, size
+spectra-rcwa solve grating.json                          # efficiencies of every propagating order, p and s
+```
+
+`spectra-rcwa mcp` serves seven tools over stdio (`pip install "spectra-rcwa[mcp]"`): `environment`, `example_problem`, `problem_schema`, `validate_problem`, `solve_efficiencies`, `efficiency_gradient` and `convergence_in_orders`. Register it in any MCP client as the command `spectra-rcwa` with the argument `mcp`, for example `claude mcp add spectra-rcwa -- spectra-rcwa mcp`. In Claude Code the repository is also a plugin marketplace with a skill and the server:
+
+```text
+/plugin marketplace add hyoseokp/spectra-rcwa
+/plugin install spectra-rcwa@spectra-rcwa
+```
+
+## Citation
+
+A manuscript describing SPECTRA-RCWA is in preparation; until it appears, cite the software ([CITATION.cff](https://github.com/hyoseokp/spectra-rcwa/blob/main/CITATION.cff) gives GitHub's "Cite this repository"):
+
+```bibtex
+@software{spectra_rcwa,
+  author  = {Park, Hyoseok},
+  title   = {{SPECTRA-RCWA}: eigendecomposition-free batched {RCWA} forward and adjoint in {PyTorch}},
+  url     = {https://github.com/hyoseokp/spectra-rcwa},
+  version = {1.2.0},
+  year    = {2026}
+}
+```
+
+## License
+
+MIT, see [LICENSE](https://github.com/hyoseokp/spectra-rcwa/blob/main/LICENSE).
