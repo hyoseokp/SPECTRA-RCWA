@@ -12,6 +12,12 @@ from dataclasses import dataclass, replace
 class SolverConfig:
     """Options of the eigendecomposition-free layer solve.
 
+    Permittivity matrices:
+        factorization:       "li": the in-plane components by Li's rules (J. Opt. Soc. Am. A 13, 1870 (1996); 14, 2758 (1997)),
+                             E_xx = [[ [[1/eps]]_x^-1 ]]_y and E_yy = [[ [[1/eps]]_y^-1 ]]_x; "laurent": the Toeplitz matrix [[eps]] for both.
+                             "auto" (default): "li" for a 1D grating (one of the Fourier orders 0), where the TM efficiencies then converge as fast
+                             as the TE ones instead of as 1/N; "laurent" for a crossed grating, as before 1.3.0 (there neither rule converges
+                             uniformly faster: on a silicon pillar each is ahead for different orders).
     Matrix square root (scaled Denman-Beavers, product form):
         db_iters:            number of DB iterations (each costs one batched inverse).
         db_scaled:           how many of them use norm scaling (the first ``db_scaled``).
@@ -53,6 +59,7 @@ class SolverConfig:
         linalg_library:      torch.backends.cuda.preferred_linalg_library for remaining torch.linalg calls.
     """
 
+    factorization: str = "auto"
     db_iters: int = 4
     db_scaled: int = 4
     db_scale_power: float = 0.25
@@ -89,6 +96,8 @@ class SolverConfig:
             raise ValueError("adjoint_nodes must be even and at least 2")
         if min(self.max_step_phase, self.cos_theta, self.adjoint_tol) <= 0 or self.cos_degree < 1 or self.block_from_steps < 1:
             raise ValueError("max_step_phase, cos_theta and adjoint_tol must be positive, cos_degree and block_from_steps at least 1")
+        if self.factorization not in ("auto", "li", "laurent"):
+            raise ValueError("factorization must be 'auto', 'li' or 'laurent'")
         if self.boundary not in ("entire", "direct", "smatrix"):
             raise ValueError("boundary must be 'entire', 'direct' or 'smatrix'")
         if self.first_inverse not in ("pivlu", "torch"):

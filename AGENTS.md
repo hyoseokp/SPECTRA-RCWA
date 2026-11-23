@@ -15,7 +15,7 @@ Not a fit, or check first:
 
 - Each layer mixes two isotropic, non-magnetic materials linearly through a density in [0, 1]. Anisotropic, magnetic or graded-index (more than two materials in one layer) patterns are out of scope. A layer of other materials than the rest of the stack is possible as a stored block (no gradient through it); the MCP problem format does this with per-layer `eps_design` / `eps_fill`.
 - Rectangular lattices only (periods along x and y). No hexagonal lattice, except as a rectangular supercell.
-- The permittivity enters by the Laurent rule, as in torcwa: metals and other high-contrast patterns converge slowly in the orders. Check convergence and say so.
+- A 1D grating (`fourier_orders` [M, 0] or [0, N]) uses Li's inverse rule, so TE and TM converge alike. A crossed grating uses the Laurent rule by default (`SolverConfig(factorization="li")` switches to Li's rules): metals and other high-contrast patterns converge slowly in the orders. Check convergence and say so.
 - Non-periodic devices (a finite lens, a waveguide circuit) need a full-wave solver such as FDTD; a large-area lens can only be approximated cell by cell.
 
 ## Install

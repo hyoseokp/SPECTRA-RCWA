@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.3.0 (2026-11-23)
+
+Changed
+* 1D gratings (one of `fourier_orders` 0) build the in-plane permittivity matrices by Li's inverse rule. TM efficiencies of a lamellar grating
+  now converge like the TE ones: within 1e-4 at 20 orders, where the Laurent rule still moved by 3e-4 between 80 and 160 orders.
+  Crossed gratings keep the Laurent rule by default, so their results do not change. `SolverConfig(factorization=...)` picks
+  `"auto"` (default), `"li"` (Li's rules also for crossed gratings) or `"laurent"` (the 1.2.0 behaviour). The adjoint gradient handles
+  E_xx != E_yy (checked against autograd and finite differences).
+
+Fixed
+* `ColorRouterForward(device=None)` picked CUDA in complex64 with torch older than 2.8, which cannot compile the kernels; it now falls back to
+  the CPU there, as the problem interface already did.
+
 ## 1.2.0 (2026-11-23)
 
 Added

@@ -43,6 +43,11 @@ ENERGY_GUARD_RETRY_NUDGES = (0.0, 5.0e-4)
 WELL_ORDER = ("R", "G2", "G1", "B")
 
 
+def _take(x: torch.Tensor, *index) -> torch.Tensor:
+    """x[:, *index] of a complex tensor, gathered as its real and imaginary parts."""
+    return torch.complex(x.real[(slice(None), *index)], x.imag[(slice(None), *index)])
+
+
 def _eps(value: Permittivity, wl_um: float) -> complex:
     return complex(value(wl_um) if callable(value) else value)
 
@@ -109,7 +114,7 @@ class ColorRouterForward:
         stack: the layer stack.
         rays: pupil rays (see :func:`spectra_rcwa.pupil.shifted_disk_pupil`).
         wavelengths_nm: wavelengths.
-        device, dtype: torch device (None: CUDA if there is one, otherwise the CPU) and complex dtype (complex64 for speed, complex128 for
+        device, dtype: torch device (None: CUDA if there is one and it can run ``dtype``, otherwise the CPU; complex64 on CUDA needs torch >= 2.8) and complex dtype (complex64 for speed, complex128 for
             reference values).  One GPU per process: the kernels belong to the current CUDA device.
         config: solver options; defaults to DEFAULT.
         chunk: maximum number of solves per batch (None = all solves of a call in one batch).
@@ -125,7 +130,9 @@ class ColorRouterForward:
                  verbose_guard: bool = False):
         self.stack = stack
         self.config = config
-        self.device = torch.device(device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu"))
+        if device is None:                                             # complex64 on CUDA compiles its kernels with torch.cuda._compile_kernel (torch >= 2.8)
+            device = "cuda" if torch.cuda.is_available() and (dtype == torch.complex128 or hasattr(torch.cuda, "_compile_kernel")) else "cpu"
+        self.device = torch.device(device)
         if dtype not in (torch.complex64, torch.complex128):
             raise ValueError("dtype must be torch.complex64 or torch.complex128")
         if self.device.type == "cuda" and self.device.index not in (None, torch.cuda.current_device()):
@@ -170,6 +177,9 @@ class ColorRouterForward:
         gx, gy = gx.reshape(-1), gy.reshape(-1)
         self.conv_ix = (gx[:, None] - gx[None, :]) % self.shape[0]
         self.conv_iy = (gy[:, None] - gy[None, :]) % self.shape[1]
+        self.li_mx = (torch.arange(2 * ox + 1, device=self.device)[:, None] - torch.arange(2 * ox + 1, device=self.device)[None, :]) % self.shape[0]
+        self.li_my = (torch.arange(2 * oy + 1, device=self.device)[:, None] - torch.arange(2 * oy + 1, device=self.device)[None, :]) % self.shape[1]
+        self.li_gx, self.li_gy = gx + ox, gy + oy
 
         # detector quadrants
         sx, sy = stack.detector_samples
@@ -207,13 +217,26 @@ class ColorRouterForward:
 
     # ------------------------------------------------------------------ physics
     def _econv(self, densities: torch.Tensor):
-        """Permittivity convolution matrix E and E^-1 per (density, wavelength); row d * L + lambda."""
+        """Permittivity matrices per (density, wavelength), row d * L + lambda: [E_xx, E_yy] [rows, 2, N, N] and E^-1 = [[eps]]^-1 (for E_zz).
+        E_xx and E_yy follow Li's rules or are both [[eps]], by SolverConfig.factorization (see :class:`spectra_rcwa.config.SolverConfig`)."""
         rho = densities.to(self.cdt)
         eps_map = (self.eps_bg[None, :, None, None]
                    + rho[:, None] * (self.eps_design - self.eps_bg)[None, :, None, None])
         spec = (torch.fft.fft2(eps_map) / (self.shape[0] * self.shape[1])).reshape(-1, *self.shape)
-        e = torch.complex(spec.real[:, self.conv_ix, self.conv_iy], spec.imag[:, self.conv_ix, self.conv_iy])
-        return e, lapack.inv(e)
+        e = _take(spec, self.conv_ix, self.conv_iy)
+        rule = self.config.factorization
+        if rule == "laurent" or (rule == "auto" and min(self.orders) > 0):
+            return e[:, None].expand(-1, 2, -1, -1), lapack.inv(e)
+        sx, sy = self.shape
+        inv_map = (1.0 / eps_map).reshape(-1, sx, sy)
+        tx = _take(torch.fft.fft(inv_map, dim=1) / sx, self.li_mx)                   # [[1/eps]]_x at each y: [rows, Mx, Mx, Sy]
+        fx = torch.fft.fft(lapack.inv(tx.permute(0, 3, 1, 2)), dim=1) / sy           # its inverse, then the Fourier series in y: [rows, Sy, Mx, Mx]
+        ty = _take(torch.fft.fft(inv_map, dim=2).transpose(1, 2) / sy, self.li_my)   # [[1/eps]]_y at each x: [rows, My, My, Sx]
+        fy = torch.fft.fft(lapack.inv(ty.permute(0, 3, 1, 2)), dim=1) / sx           # [rows, Sx, My, My]
+        gx, gy = self.li_gx, self.li_gy
+        exx = _take(fx, self.conv_iy, gx[:, None], gx[None, :])
+        eyy = _take(fy, self.conv_ix, gy[:, None], gy[None, :])
+        return torch.stack((exx, eyy), 1), lapack.inv(e)
 
     def _p(self, einv_all, g: SolveGeometry):
         n = self.n_orders
@@ -227,9 +250,10 @@ class ColorRouterForward:
     def _pq(self, e_all, einv_all, g: SolveGeometry):
         """P and Q."""
         e = e_all[g.lam_index]
+        exx, eyy = e[:, 0], e[:, 1]
         kx, ky = g.kx, g.ky
-        q = torch.cat((torch.cat((torch.diag_embed(-kx * ky), torch.diag_embed(kx ** 2) - e), -1),
-                       torch.cat((e - torch.diag_embed(ky ** 2), torch.diag_embed(ky * kx)), -1)), -2)
+        q = torch.cat((torch.cat((torch.diag_embed(-kx * ky), torch.diag_embed(kx ** 2) - eyy), -1),
+                       torch.cat((exx - torch.diag_embed(ky ** 2), torch.diag_embed(ky * kx)), -1)), -2)
         return self._p(einv_all, g), q
 
     def _layer(self, e_all, einv_all, g: SolveGeometry):

@@ -219,8 +219,9 @@ t, r = fwd.efficiencies([(rho_a, 0.25), (rho_b, 0.25)])      # order (m, n) at i
 ### Scope and conventions
 
 * Rectangular lattices with periods along x and y. The two periods, the two order counts and the two sides of the design grid can differ, and
-  `fourier_orders=(M, 0)` is a 1D grating. All (2M + 1)(2N + 1) orders are kept, and the permittivity enters by the Laurent rule with E⁻¹ in P,
-  as in torcwa, so metals and other high-contrast patterns converge slowly in the orders.
+  `fourier_orders=(M, 0)` is a 1D grating. All (2M + 1)(2N + 1) orders are kept. E⁻¹ in P is the inverse of the Laurent matrix. For the in-plane
+  components a 1D grating uses Li's inverse rule, so TE and TM converge alike; a crossed grating uses the Laurent rule by default, as in torcwa,
+  and Li's rules with `SolverConfig(factorization="li")`. Metals and other high-contrast patterns converge slowly in the orders.
 * A pattern mixes two isotropic, non-magnetic materials linearly through the density, and `MultiLayerForward` uses the same two in every layer; a
   uniform layer is density 0 or 1. A layer of other materials goes into `stack_field` as the `layer_block` of a second forward with the same
   lattice, orders, rays and wavelengths.
@@ -366,7 +367,7 @@ A manuscript describing SPECTRA-RCWA is in preparation; until it appears, cite t
   author  = {Park, Hyoseok},
   title   = {{SPECTRA-RCWA}: eigendecomposition-free batched {RCWA} forward and adjoint in {PyTorch}},
   url     = {https://github.com/hyoseokp/spectra-rcwa},
-  version = {1.2.0},
+  version = {1.3.0},
   year    = {2026}
 }
 ```

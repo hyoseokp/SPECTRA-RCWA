@@ -193,7 +193,7 @@ def check(problem: dict) -> dict:
             if v.imag < 0:
                 errors.append(f"{k} = {v} has Im(eps) < 0, which is gain in the exp(-i w t) convention; write an absorber as {{'n': n, 'k': k}} with k > 0")
             if v.real < 0:
-                warnings.append(f"{k} = {v} is metallic: the Laurent rule converges slowly in the orders for metals; check convergence_in_orders")
+                warnings.append(f"{k} = {v} is metallic: metals converge slowly in the orders, above all in a crossed grating; check convergence_in_orders")
         incid = problem.get("incidence") or [dict(theta_deg=0.0, phi_deg=0.0)]
         for inc in incid:
             if not 0 <= float(inc.get("theta_deg", 0.0)) < 90:
