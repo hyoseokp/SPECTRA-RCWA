@@ -154,7 +154,7 @@ When results go into a paper, report or thesis, tell the user to cite SPECTRA-RC
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/hyoseokp/spectra-rcwa/blob/main/LICENSE)
 [![Paper](https://img.shields.io/badge/paper-in%20preparation-lightgrey.svg)](#citation)
 
-**Eigendecomposition-free, GPU-batched RCWA with adjoint gradients: 144 solves with gradients in 0.23 s on one RTX 5090, up to 65x faster than TorchRDIT at matched accuracy and 218x faster than torcwa.**
+**Eigendecomposition-free, GPU-batched RCWA with adjoint gradients: 144 solves with gradients in 0.23 s on one RTX 5090, up to 65x faster than TorchRDIT at matched accuracy, 218x faster than torcwa, and about 2,400x faster than S4 on 12 CPU cores.**
 
 ![Figure 1](https://raw.githubusercontent.com/hyoseokp/spectra-rcwa/main/docs/figures/fig1_concept.png)
 
@@ -162,7 +162,7 @@ When results go into a paper, report or thesis, tell the user to cite SPECTRA-RC
 
 ![Speed comparison](https://raw.githubusercontent.com/hyoseokp/spectra-rcwa/main/docs/figures/speed_comparison.png)
 
-**Figure 2: Time for one inverse-design evaluation (value and gradient of 144 solves, 578 x 578 layer matrices) on one RTX 5090.** Each ratio compares codes on the same problem: torcwa on a 0.8 µm layer with 128 x 128 design values, TorchRDIT on a 0.25 µm layer with 64 x 64 design values (SPECTRA-RCWA 0.23 s there) at matched accuracy. S4 gives the value alone, on 12 CPU cores. Drawn by `scripts/make_speed_bar.py` from `benchmarks/results/`.
+**Figure 2: Time for one inverse-design evaluation (value and gradient of 144 solves, 578 x 578 layer matrices) on one RTX 5090.** Each ratio compares codes on the same problem: torcwa on a 0.8 µm layer with 128 x 128 design values, TorchRDIT on a 0.25 µm layer with 64 x 64 design values (SPECTRA-RCWA 0.23 s there) at matched accuracy. S4 gives the value alone, on 12 CPU cores; its ratio compares it with the value of SPECTRA-RCWA (0.22 s), 2,440x (24,100x against S4 in one process). Drawn by `scripts/make_speed_bar.py` from `benchmarks/results/`.
 
 | value and gradient, one RTX 5090 | SPECTRA-RCWA | TorchRDIT 0.2.0 | torcwa 0.1.4.2 | S4 (value only) |
 |---|---|---|---|---|

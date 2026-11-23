@@ -16,6 +16,7 @@ def j(name):
 
 
 ours = j("rtx5090_torcwa.json")["this_work"]["default"]["value_grad_s"]
+ours_value = j("rtx5090_torcwa.json")["this_work"]["default"]["value_s"]          # S4 gives the value alone: compared with our value
 ours_rdit = next(r["value_grad_s"] for b in j("torchrdit_rtx5090_025um.json")["blocks"] for r in b["rows"] if r["code"] == "SPECTRA")
 rows = [
     ("SPECTRA-RCWA", ours, "#0072B2"),
@@ -31,10 +32,13 @@ times = [r[1] for r in rows][::-1]
 cols = [r[2] for r in rows][::-1]
 ax.barh(names, times, color=cols, height=0.62)
 ax.set_xscale("log")
-ax.set_xlim(0.1, 6000)
+ax.set_xlim(0.1, 5e4)
 for y, t in enumerate(times):
     label = f"{t:.2f} s" if t < 1 else f"{t:.1f} s" if t < 100 else f"{t:.0f} s"
-    if t != ours and "S4" not in names[y]:               # S4 gives the value alone, on a CPU: no ratio
+    if "S4" in names[y]:
+        r = float(f"{t / ours_value:.3g}")
+        label += f"   ({r:,.0f}x slower)"
+    elif t != ours:
         base = ours_rdit if "TorchRDIT" in names[y] else ours                # each code against SPECTRA-RCWA on the same problem
         label += f"   ({t / base:.0f}x slower)"
     ax.text(t * 1.12, y, label, va="center", fontsize=10, fontweight="bold" if t == ours else "normal")
