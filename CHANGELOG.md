@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.5.0 (2026-11-25)
+
+Added
+* Oblique lattices: `lattice_angle_deg` of a problem and of `Stack`, the angle between a1 = (period_x, 0) and a2 (60 or 120 with equal periods is
+  hexagonal). Disks, rectangles, lamellar stripes and pixel arrays have exact Fourier coefficients there too; efficiencies, gradients and the
+  convergence in the orders work as on a rectangular lattice. A hexagonal lattice needs fewer orders than its rectangular supercell: for an array of
+  index 2 pillars, 254 x 254 matrices against 546 x 546 at about the same error, 3 to 5 times faster on a GPU.
+  Not on an oblique lattice: 1D gratings, Li's rules, and the wells of the colour router.
+* `truncation`: "rectangular" or "circular" orders; "auto" keeps a rectangle at 90 degrees, as before, and a circle otherwise.
+* The example `hexagonal_pillars`.
+
+Fixed
+* `convergence` with a `tolerance` took the start-up of the GPU kernels in the first solve for its cost, and stopped with "max_seconds reached" too early.
+
+Results at 90 degrees are unchanged.
+
 ## 1.4.0 (2026-11-24)
 
 Added

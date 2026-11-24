@@ -218,8 +218,10 @@ t, r = fwd.efficiencies([(rho_a, 0.25), (rho_b, 0.25)])      # order (m, n) at i
 
 ### Scope and conventions
 
-* Rectangular lattices with periods along x and y. The two periods, the two order counts and the two sides of the design grid can differ, and
-  `fourier_orders=(M, 0)` is a 1D grating. All (2M + 1)(2N + 1) orders are kept. E⁻¹ in P is the inverse of the Laurent matrix. For the in-plane
+* Rectangular lattices with periods along x and y, and oblique ones: `lattice_angle_deg` is the angle between a1 = (Λx, 0) and a2 (60 or 120 with
+  equal periods is hexagonal). An oblique lattice keeps a circle of orders (`truncation="circular"`), so a hexagonal pattern keeps its symmetry, uses
+  the Laurent rule, needs orders along both vectors and has no wells. The two periods, the two order counts and the two sides of the design grid can differ, and
+  `fourier_orders=(M, 0)` is a 1D grating. On a rectangular lattice all (2M + 1)(2N + 1) orders are kept. E⁻¹ in P is the inverse of the Laurent matrix. For the in-plane
   components a 1D grating uses Li's inverse rule, so TE and TM converge alike; a crossed grating uses the Laurent rule by default, as in torcwa,
   and Li's rules with `SolverConfig(factorization="li")`. Metals and other high-contrast patterns converge slowly in the orders.
 * A pattern mixes two isotropic, non-magnetic materials linearly through the density, and `MultiLayerForward` uses the same two in every layer; a
@@ -334,7 +336,7 @@ python bench_synthetic.py synthetic_small.json --small      # a small case for a
 [AGENTS.md](https://github.com/hyoseokp/spectra-rcwa/blob/main/AGENTS.md) tells an agent when the package fits, how to set up a problem, how to check it and which pitfalls to avoid; [llms.txt](https://github.com/hyoseokp/spectra-rcwa/blob/main/agents/llms.txt) and [llms-full.txt](https://github.com/hyoseokp/spectra-rcwa/blob/main/agents/llms-full.txt) are the same material for language models. The command line takes problems as JSON:
 
 ```bash
-spectra-rcwa example lamellar_grating > grating.json     # also pillar_array, slab, two_layer_grating
+spectra-rcwa example lamellar_grating > grating.json     # also pillar_array, hexagonal_pillars, slab, two_layer_grating
 spectra-rcwa check grating.json                          # errors, warnings, size
 spectra-rcwa solve grating.json                          # efficiencies of every propagating order, p and s
 ```
@@ -385,7 +387,7 @@ To cite a particular version of the code as well:
   title   = {{SPECTRA-RCWA}: eigendecomposition-free batched {RCWA} forward and adjoint in {PyTorch}},
   doi     = {10.5281/zenodo.24459563},
   url     = {https://github.com/hyoseokp/spectra-rcwa},
-  version = {1.4.0},
+  version = {1.5.0},
   year    = {2026}
 }
 ```

@@ -32,7 +32,7 @@ import torch
 from . import adjoint, blocks, lapack, matfun
 from .boundary import boundary_direct, transmitted_smatrix
 from .config import DEFAULT, SolverConfig
-from .geometry import BDD, SolveGeometry, build_geometry
+from .geometry import BDD, SolveGeometry, build_geometry, truncated_orders
 from .kernels import lincomb as _lincomb
 from .kernels.bdd_pair import bdd_pair
 
@@ -62,6 +62,12 @@ class Stack:
     4 * fourier_orders + 1, the harmonics the layer matrices use.  The detector samples (even counts) sit at (k + 0.5) period / samples, and each
     well is one quadrant of the cell.  Every solve runs at the frequency (1 + rayleigh_nudge) / wavelength, which keeps the orders of the two
     half-spaces off their Rayleigh points.
+
+    ``lattice_angle_deg`` is the angle between the lattice vectors a1 = (period_x, 0) and a2 = period_y (cos, sin) of an oblique lattice (60 or 120 with
+    equal periods: hexagonal); ``density[i, j]`` is then the sample at (i / H) a1 + (j / W) a2, and order (m, n) adds m b1 + n b2 of the reciprocal
+    lattice.  ``truncation`` picks the orders kept ("auto": rectangular at 90 degrees, circular otherwise; see
+    :func:`spectra_rcwa.geometry.truncated_orders`).  Without a full rectangle of orders on a 90 degree lattice there are efficiencies, fields
+    and their gradients, but no wells, and the Laurent rule.
     """
 
     period_um: tuple[float, float]
@@ -75,6 +81,12 @@ class Stack:
     detector_z_um: float = 1.0
     detector_samples: tuple[int, int] = (24, 24)
     rayleigh_nudge: float = 1.0e-4
+    lattice_angle_deg: float = 90.0
+    truncation: str = "auto"
+
+    def order_list(self) -> list[tuple[int, int]]:
+        """The diffraction orders (m, n) in the order of the solver."""
+        return truncated_orders(tuple(int(o) for o in self.fourier_orders), self.lattice_angle_deg, self.truncation)
 
     def __post_init__(self):
         for name in ("period_um", "density_shape", "fourier_orders", "detector_samples"):
@@ -87,9 +99,16 @@ class Stack:
             raise ValueError("fourier_orders must be non-negative integers")
         if any(int(s) != s or s < 2 or s % 2 for s in self.detector_samples):
             raise ValueError("detector_samples must be even, so that the four wells get the same number of samples")
-        if any(s < 4 * o + 1 for s, o in zip(self.density_shape, self.fourier_orders)):
+        if not 0 < self.lattice_angle_deg < 180:
+            raise ValueError("lattice_angle_deg is the angle between the lattice vectors in degrees, 0 < angle < 180")
+        if self.truncation not in ("auto", "rectangular", "circular"):
+            raise ValueError("truncation is 'auto', 'rectangular' or 'circular'")
+        if self.lattice_angle_deg != 90 and min(self.fourier_orders) == 0:
+            raise ValueError("an oblique lattice needs orders along both lattice vectors; a 1D grating has lattice_angle_deg 90")
+        need = tuple(4 * max(abs(o[i]) for o in self.order_list()) + 1 for i in (0, 1))
+        if any(s < x for s, x in zip(self.density_shape, need)):
             raise ValueError(f"density_shape {tuple(self.density_shape)} is too coarse for fourier_orders {tuple(self.fourier_orders)}: "
-                             f"need at least {tuple(4 * o + 1 for o in self.fourier_orders)}")
+                             f"need at least {need}")
 
 
 @dataclass(frozen=True)
@@ -146,7 +165,11 @@ class ColorRouterForward:
         self.guard_events: list[dict] = []
         self.orders = tuple(int(o) for o in stack.fourier_orders)
         ox, oy = self.orders
-        self.n_orders = (2 * ox + 1) * (2 * oy + 1)
+        self.order_list = stack.order_list()
+        self.n_orders = len(self.order_list)
+        self.rectangular = stack.lattice_angle_deg == 90 and self.order_list == truncated_orders(self.orders)
+        if not self.rectangular and config.factorization == "li":
+            raise ValueError("factorization='li' needs lattice_angle_deg 90 and the rectangular truncation")
         self.shape = tuple(int(s) for s in stack.density_shape)
 
         self.solve_spec = []
@@ -172,9 +195,7 @@ class ColorRouterForward:
             raise ValueError("Im(eps) < 0 is gain in the exp(-i w t) convention used here; write an absorbing index as n + ik")
 
         # Toeplitz gather indices of the permittivity convolution matrix
-        gx, gy = torch.meshgrid(torch.arange(-ox, ox + 1, device=self.device),
-                                torch.arange(-oy, oy + 1, device=self.device), indexing="ij")
-        gx, gy = gx.reshape(-1), gy.reshape(-1)
+        gx, gy = torch.tensor(self.order_list, device=self.device).unbind(1)
         self.conv_ix = (gx[:, None] - gx[None, :]) % self.shape[0]
         self.conv_iy = (gy[:, None] - gy[None, :]) % self.shape[1]
         self.li_mx = (torch.arange(2 * ox + 1, device=self.device)[:, None] - torch.arange(2 * ox + 1, device=self.device)[None, :]) % self.shape[0]
@@ -202,7 +223,8 @@ class ColorRouterForward:
             self._geo_cache[key] = build_geometry(                     # in complex128: eps - kx^2 - ky^2 cancels near a Rayleigh point
                 solves, orders=self.orders, detector_samples=st.detector_samples, period=st.period_um,
                 thickness=st.thickness_um, detector_z=st.detector_z_um, device=self.device,
-                eps_in_fn=lambda wl: _eps(st.eps_in, wl), eps_out_fn=lambda wl: _eps(st.eps_out, wl), cdt=torch.complex128).to(self.cdt)
+                eps_in_fn=lambda wl: _eps(st.eps_in, wl), eps_out_fn=lambda wl: _eps(st.eps_out, wl), cdt=torch.complex128,
+                order_list=self.order_list, lattice_angle_deg=st.lattice_angle_deg).to(self.cdt)
         return self._geo_cache[key]
 
     def _geometry_pairs(self, pairs, nudges) -> SolveGeometry:
@@ -327,7 +349,8 @@ class ColorRouterForward:
 
     def efficiencies(self, layers, solves=None):
         """(T, R), each [b, N, 2]: the power in every diffraction order of the substrate and of the superstrate over the incident power, for the
-        stack of :meth:`stack_field`.  Order (m, n) has index (m + ox) * (2 oy + 1) + (n + oy); the columns are the two incident polarisations."""
+        stack of :meth:`stack_field`.  The orders are those of ``order_list``; in the rectangular truncation (m, n) has index
+        (m + ox) * (2 oy + 1) + (n + oy).  The columns are the two incident polarisations."""
         g = self._solves(0, solves)
         below, top = self.stack_field(layers, solves, return_top=True)
         n = self.n_orders
@@ -371,6 +394,8 @@ class ColorRouterForward:
 
     def _wells(self, out: torch.Tensor, g: SolveGeometry, strict: bool = True):
         """Quadrant fractions x exact transmission for both polarisations: [b, 4, 2], T [b, 2]."""
+        if not self.rectangular:
+            raise ValueError("the wells of a colour router need lattice_angle_deg 90 and the rectangular truncation; use efficiencies")
         n = self.n_orders
         ox, oy = self.orders
         exy = out * g.out_phase[:, :, None]

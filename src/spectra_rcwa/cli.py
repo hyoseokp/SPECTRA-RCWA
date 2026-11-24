@@ -11,7 +11,7 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("info", help="version, torch, GPU, examples and conventions as JSON")
     ex = sub.add_parser("example", help="print an example problem as JSON")
-    ex.add_argument("name", help="lamellar_grating, pillar_array, slab or two_layer_grating")
+    ex.add_argument("name", help="lamellar_grating, pillar_array, hexagonal_pillars, slab or two_layer_grating")
     for name, text in (("check", "validate a problem JSON file"), ("solve", "diffraction efficiencies of a problem JSON file")):
         p = sub.add_parser(name, help=text)
         p.add_argument("file", help="problem JSON ('-' for standard input)")

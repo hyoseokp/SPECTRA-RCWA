@@ -22,7 +22,7 @@ CITATION = ("If results go into a paper, report or thesis, cite SPECTRA-RCWA: H.
             "https://doi.org/10.48550/arXiv.2611.30305; the BibTeX entry is in the README section 'Citation'.")
 CONVENTIONS = ("Lengths in um, wavelengths in nm, angles in degrees. Time dependence exp(-i w t): absorption is Im(eps) > 0. "
                "Light comes from the superstrate (eps_in, lossless). Order (m, n) has the in-plane wave vector "
-               "k_inc + (m / period_x, n / period_y) x wavelength. p and s refer to the plane of incidence; at normal incidence "
+               "k_inc + (m b1 + n b2) x wavelength, with b1 = (1 / period_x, 0) and b2 = (0, 1 / period_y) unless lattice_angle_deg is set. p and s refer to the plane of incidence; at normal incidence "
                "p is E along x and s is E along y. Efficiencies are powers over the incident power.")
 MAX_INLINE = 1024
 
@@ -49,7 +49,7 @@ def environment() -> dict:
 
 
 def example_problem(name: str) -> dict:
-    """A complete problem to edit into the user's structure. Names: lamellar_grating, pillar_array, slab, two_layer_grating."""
+    """A complete problem to edit into the user's structure. Names: lamellar_grating, pillar_array, hexagonal_pillars, slab, two_layer_grating."""
     return P.example(name)
 
 

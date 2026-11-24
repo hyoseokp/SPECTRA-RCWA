@@ -2,6 +2,7 @@
 import asyncio
 import json
 import math
+import time
 
 import numpy as np
 import pytest
@@ -232,6 +233,20 @@ def test_convergence_says_when_it_stops_short():
     assert not out["converged"] and "array" in out["reason"] and out["fourier_orders"] == [14, 0] and out["grid"] == [64, 1]
     with pytest.raises(ValueError):
         P.convergence(problem, [[2, 0]], tolerance=1e-3)
+
+
+def test_convergence_does_not_extrapolate_the_start_up(monkeypatch):
+    solve, calls = P.solve, []
+
+    def slow_start(problem):
+        calls.append(problem)
+        if len(calls) == 1:
+            time.sleep(0.5)
+        return solve(problem)
+
+    monkeypatch.setattr(P, "solve", slow_start)
+    problem = cpu(P.example("lamellar_grating"), fourier_orders=[4, 0])
+    assert P.convergence(problem, tolerance=1e-2, max_seconds=1.2)["converged"] and len(calls) > 2
 
 
 def test_tools_save_arrays_and_gradients(results):

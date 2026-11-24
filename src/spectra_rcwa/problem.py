@@ -18,6 +18,7 @@ import torch
 from . import lapack
 from .config import DEFAULT
 from .forward import ColorRouterForward, Ray, Stack
+from .geometry import reciprocal, truncated_orders
 
 EXAMPLES = {
     "lamellar_grating": dict(
@@ -28,6 +29,11 @@ EXAMPLES = {
     "pillar_array": dict(
         description="Square array of index 2.0 disks (radius 0.15 um, height 0.6 um, period 0.5 um) on glass, 450 to 650 nm at normal incidence",
         problem=dict(period_um=[0.5, 0.5], fourier_orders=[5, 5], wavelengths_nm=[450.0, 550.0, 650.0],
+                     incidence=[dict(theta_deg=0.0, phi_deg=0.0)], eps_in=1.0, eps_out=1.46 ** 2, eps_design=4.0, eps_fill=1.0,
+                     layers=[dict(thickness_um=0.6, pattern=dict(type="disk", radius_um=0.15))])),
+    "hexagonal_pillars": dict(
+        description="Hexagonal array of index 2.0 disks (radius 0.15 um, height 0.6 um, pitch 0.5 um) on glass, 450 to 650 nm at normal incidence",
+        problem=dict(period_um=[0.5, 0.5], lattice_angle_deg=60.0, fourier_orders=[5, 5], wavelengths_nm=[450.0, 550.0, 650.0],
                      incidence=[dict(theta_deg=0.0, phi_deg=0.0)], eps_in=1.0, eps_out=1.46 ** 2, eps_design=4.0, eps_fill=1.0,
                      layers=[dict(thickness_um=0.6, pattern=dict(type="disk", radius_um=0.15))])),
     "slab": dict(
@@ -56,7 +62,14 @@ SCHEMA = {
     "required": ["period_um", "fourier_orders", "wavelengths_nm", "eps_design", "layers"],
     "properties": {
         "period_um": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2,
-                      "description": "Periods along x and y. For a 1D grating (fourier_orders [M, 0]) the y period only sets the bookkeeping; any positive value."},
+                      "description": "Periods along x and y: the lengths of the lattice vectors. For a 1D grating (fourier_orders [M, 0]) the y period only sets the bookkeeping; any positive value."},
+        "lattice_angle_deg": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 180,
+                              "description": "Angle between the lattice vectors a1 = (period_x, 0) and a2 = period_y (cos, sin)(angle); default 90. "
+                              "60 or 120 with equal periods is hexagonal. An oblique lattice needs orders along both vectors. Patterns: center_um and size_um stay "
+                              "Cartesian x, y (default center: the middle of the cell, (a1 + a2) / 2); lamellar stripes and arrays follow the lattice vectors."},
+        "truncation": {"enum": ["auto", "rectangular", "circular"],
+                       "description": "Orders kept: rectangular |m| <= M, |n| <= N; circular: the ellipse through (M, 0) and (0, N) with the symmetry of the lattice. "
+                       "Default auto: rectangular at 90 degrees, circular otherwise (a hexagonal pattern keeps its symmetry only in the circular one)."},
         "fourier_orders": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2,
                            "description": "Orders kept along x and y: (2M + 1)(2N + 1) orders, layer matrices of twice that size. [M, 0] is a 1D grating. Check convergence by raising them."},
         "wavelengths_nm": {"type": "array", "items": {"type": "number"}},
@@ -115,7 +128,33 @@ def _orders(problem) -> tuple[int, int]:
 def _grid(problem) -> tuple[int, int]:
     if "grid" in problem:
         return tuple(int(x) for x in problem["grid"])
-    return tuple(max(512, 4 * o + 1) if o > 0 else 1 for o in _orders(problem))
+    return tuple(max(512, 4 * o + 1) if o > 0 else 1 for o in _extent(problem))
+
+
+def _angle(problem) -> float:
+    return float(problem.get("lattice_angle_deg", 90.0))
+
+
+def _order_list(problem, orders=None):
+    return truncated_orders(tuple(_orders(problem) if orders is None else (int(o) for o in orders)), _angle(problem), problem.get("truncation", "auto"))
+
+
+def _extent(problem, orders=None) -> tuple[int, int]:
+    """Largest |m| and |n| of the orders kept."""
+    kept = _order_list(problem, orders)
+    return max(m for m, _ in kept), max(n for _, n in kept)
+
+
+def _shortest(period_um, angle: float) -> float:
+    """Distance between a point and its nearest image on the lattice."""
+    reach = 1 + int(max(period_um) / (min(period_um) * math.sin(math.radians(angle))))
+    return min(math.hypot(x, y) for x, y in _translations(period_um, angle, reach) if (x, y) != (0.0, 0.0))
+
+
+def _translations(period_um, angle: float, reach: int):
+    lx, ly = (float(p) for p in period_um)
+    c, s = (0.0, 1.0) if angle == 90 else (math.cos(math.radians(angle)), math.sin(math.radians(angle)))
+    return [(i * lx + j * ly * c, j * ly * s) for i in range(-reach, reach + 1) for j in range(-reach, reach + 1)]
 
 
 def _array(pattern: dict) -> np.ndarray:
@@ -127,10 +166,35 @@ def _pixels(pattern: dict) -> bool:
     return pattern.get("type") in ("array", "npy") and bool(pattern.get("pixels"))
 
 
-def density(pattern: dict, period_um, grid) -> np.ndarray:
-    """Density samples of a pattern; sample [i, j] sits at x = i period_x / H, y = j period_y / W.  An array with ``pixels`` is returned as it is."""
+def _center(pattern: dict, period_um, angle: float) -> tuple[float, float]:
+    """The centre of a disk or rectangle, by default the middle of the cell."""
+    lx, ly = (float(p) for p in period_um)
+    c, s = (0.0, 1.0) if angle == 90 else (math.cos(math.radians(angle)), math.sin(math.radians(angle)))
+    x, y = pattern.get("center_um", ((lx + ly * c) / 2, ly * s / 2))
+    return float(x), float(y)
+
+
+def density(pattern: dict, period_um, grid, angle: float = 90.0) -> np.ndarray:
+    """Density samples of a pattern; sample [i, j] sits at (i / H) a1 + (j / W) a2, which is x = i period_x / H, y = j period_y / W at 90 degrees.
+    An array with ``pixels`` is returned as it is."""
     h, w = grid
     lx, ly = period_um
+    if angle != 90 and pattern.get("type") in ("disk", "rectangle"):
+        cx, cy = _center(pattern, period_um, angle)
+        c, s = math.cos(math.radians(angle)), math.sin(math.radians(angle))
+        u, v = np.arange(h)[:, None] / h * lx, np.arange(w)[None, :] / w * ly
+        px, py = u + v * c - cx, v * s - cy
+        rho = np.zeros((h, w), dtype=bool)
+        size = 2 * float(pattern["radius_um"]) if pattern["type"] == "disk" else max(pattern["size_um"])
+        height = min(lx, ly) * s                           # the images that can reach into the cell
+        reach = 2 + int((size + math.hypot(cx, cy)) / height)
+        for tx, ty in _translations(period_um, angle, reach):
+            if pattern["type"] == "disk":
+                rho |= (px - tx) ** 2 + (py - ty) ** 2 < float(pattern["radius_um"]) ** 2
+            else:
+                a, b = (float(q) for q in pattern["size_um"])
+                rho |= (px - tx >= -a / 2) & (px - tx < a / 2) & (py - ty >= -b / 2) & (py - ty < b / 2)
+        return rho.astype(float)
     x = (np.arange(h) / h * lx)[:, None]
     y = (np.arange(w) / w * ly)[None, :]
     kind = pattern.get("type")
@@ -168,20 +232,27 @@ def density(pattern: dict, period_um, grid) -> np.ndarray:
     return np.ascontiguousarray(rho)
 
 
-def _exact(pattern: dict, period_um, orders) -> bool:
+def _exact(pattern: dict, period_um, orders, angle: float = 90.0) -> bool:
     """Whether the Fourier coefficients of a pattern are used exactly instead of from samples.
 
-    Any lamellar pattern; a rectangle or a disk (that does not reach into the next cell) of a crossed grating.  With orders along one axis only,
+    Any lamellar pattern; a rectangle or a disk of a crossed grating that does not overlap its images (a rectangle may at 90 degrees).  With orders along one axis only,
     Li's rule needs the pattern to vary along one axis."""
     kind = pattern.get("type")
-    if kind == "disk" and 2 * float(pattern["radius_um"]) > min(period_um):
+    if kind == "disk" and 2 * float(pattern["radius_um"]) > _shortest(period_um, angle) * (1 + 1e-9):
         return False
+    if kind == "rectangle" and angle != 90:
+        a, b = (float(q) for q in pattern["size_um"])
+        reach = 2 + int(math.hypot(a, b) / (min(period_um) * math.sin(math.radians(angle))))
+        if any(abs(x) < a * (1 - 1e-12) and abs(y) < b * (1 - 1e-12) for x, y in _translations(period_um, angle, reach) if (x, y) != (0.0, 0.0)):
+            return False
     return kind == "lamellar" or _pixels(pattern) or (kind in ("rectangle", "disk") and min(orders) > 0)
 
 
-def coefficients(pattern: dict, period_um, m, n) -> torch.Tensor:
-    """Fourier coefficients (1 / cell) int rho exp(-2 pi i (m x / period_x + n y / period_y)) of a lamellar, rectangle or disk pattern."""
+def coefficients(pattern: dict, period_um, m, n, angle: float = 90.0) -> torch.Tensor:
+    """Fourier coefficients (1 / cell) int rho exp(-2 pi i (m b1 + n b2) . r) of a lamellar, rectangle or disk pattern, b1 = (1 / period_x, 0) and
+    b2 = (0, 1 / period_y) at 90 degrees."""
     lx, ly = (float(p) for p in period_um)
+    (b1x, b1y), (_, b2y) = reciprocal((lx, ly), angle)
     m, n = torch.as_tensor(m, dtype=torch.float64), torch.as_tensor(n, dtype=torch.float64)
 
     def bar(k, fill, center):
@@ -192,20 +263,24 @@ def coefficients(pattern: dict, period_um, m, n) -> torch.Tensor:
     if kind == "lamellar":
         k, other = (m, n) if pattern.get("axis", "x") == "x" else (n, m)
         return bar(k, float(pattern["fill_factor"]), float(pattern.get("center", 0.5))) * (other == 0)
-    cx, cy = pattern.get("center_um", (lx / 2, ly / 2))
+    cx, cy = _center(pattern, period_um, angle)
+    gx, gy = m * b1x, m * b1y + n * b2y
+    area = 1 / (b1x * b2y)
     if kind == "rectangle":
-        a, b = pattern["size_um"]
-        return bar(m, float(a) / lx, float(cx) / lx) * bar(n, float(b) / ly, float(cy) / ly)
+        a, b = (float(q) for q in pattern["size_um"])
+        if angle == 90:
+            return bar(m, a / lx, cx / lx) * bar(n, b / ly, cy / ly)
+        return a * b / area * torch.sinc(gx * a) * torch.sinc(gy * b) * torch.exp(-2j * math.pi * (gx * cx + gy * cy))
     if kind == "disk":
         radius = float(pattern["radius_um"])
-        u = 2 * math.pi * radius * torch.hypot(m / lx, n / ly)
+        u = 2 * math.pi * radius * torch.hypot(gx, gy)
         shape = torch.where(u == 0, 0.5, torch.special.bessel_j1(u) / torch.where(u == 0, 1.0, u))        # J1(u) / u
-        return 2 * math.pi * radius ** 2 / (lx * ly) * shape * torch.exp(-2j * math.pi * (m * float(cx) / lx + n * float(cy) / ly))
+        return 2 * math.pi * radius ** 2 / area * shape * torch.exp(-2j * math.pi * (gx * cx + gy * cy))
     raise ValueError(f"no closed form for pattern type {kind!r}")
 
 
 def _pixel_coefficients(values: torch.Tensor, m, n) -> torch.Tensor:
-    """Fourier coefficients [..., orders] of values [..., H, W] constant over pixels centred on x = i period_x / H, y = j period_y / W."""
+    """Fourier coefficients [..., orders] of values [..., H, W] constant over pixels (parallelograms along a1 and a2) centred on the samples."""
     h, w = values.shape[-2:]
     spec = torch.fft.fft2(values) / (h * w)
     return spec[..., m % h, n % w] * torch.sinc(m.double() / h) * torch.sinc(n.double() / w)
@@ -213,9 +288,9 @@ def _pixel_coefficients(values: torch.Tensor, m, n) -> torch.Tensor:
 
 def _matrices(fwd, pattern: dict, period_um, rho: torch.Tensor):
     """Permittivity matrices (E [L, 2, N, N], E^-1 [L, N, N]) of a layer from exact Fourier coefficients, by the rule of SolverConfig "auto"."""
-    ox, oy = fwd.orders
+    ox, oy = (max(o[i] for o in fwd.order_list) for i in (0, 1))
     m, n = torch.meshgrid(torch.arange(-2 * ox, 2 * ox + 1), torch.arange(-2 * oy, 2 * oy + 1), indexing="ij")
-    orders = torch.tensor(order_list(fwd.orders))
+    orders = torch.tensor(fwd.order_list)
     dm, dn = (orders[:, None] - orders[None, :]).unbind(-1)
     row, col = (dm + 2 * ox).to(fwd.device), (dn + 2 * oy).to(fwd.device)
     lo, hi = fwd.eps_bg.to(torch.complex128)[:, None, None], fwd.eps_design.to(torch.complex128)[:, None, None]
@@ -226,7 +301,7 @@ def _matrices(fwd, pattern: dict, period_um, rho: torch.Tensor):
         along_y = rho.shape[0] == 1
     else:
         one = ((m == 0) & (n == 0)).to(torch.complex128).to(fwd.device)
-        c = coefficients(pattern, period_um, m, n).to(fwd.device)
+        c = coefficients(pattern, period_um, m, n, fwd.stack.lattice_angle_deg).to(fwd.device)
         eps, inv = lo * one + (hi - lo) * c, one / lo + (1 / hi - 1 / lo) * c
         along_y = pattern.get("axis") == "y"
     laurent = eps[:, row, col]
@@ -259,10 +334,20 @@ def check(problem: dict) -> dict:
     errors, warnings = [], []
     try:
         ox, oy = _orders(problem)
+        angle = _angle(problem)
+        if not 0 < angle < 180:
+            raise ValueError("lattice_angle_deg must be between 0 and 180")
+        if problem.get("truncation", "auto") not in ("auto", "rectangular", "circular"):
+            raise ValueError("truncation is 'auto', 'rectangular' or 'circular'")
+        if angle != 90 and min(ox, oy) == 0:
+            raise ValueError("an oblique lattice needs orders along both lattice vectors; a 1D grating has lattice_angle_deg 90")
+        if not 60 - 1e-9 <= angle <= 120 + 1e-9:
+            warnings.append(f"lattice_angle_deg {angle}: the same lattice has shorter vectors between 60 and 120 degrees, which need fewer orders")
         grid = _grid(problem)
-        n_orders = (2 * ox + 1) * (2 * oy + 1)
-        if any(g < 4 * o + 1 for g, o in zip(grid, (ox, oy))):
-            errors.append(f"grid {grid} is too coarse for fourier_orders {(ox, oy)}: need at least {(4 * ox + 1, 4 * oy + 1)}")
+        n_orders = len(_order_list(problem))
+        ex, ey = _extent(problem)
+        if any(g < 4 * o + 1 for g, o in zip(grid, (ex, ey))):
+            errors.append(f"grid {grid} is too coarse for fourier_orders {(ox, oy)}: need at least {(4 * ex + 1, 4 * ey + 1)}")
         eps = {k: permittivity(problem.get(k, 1.0)) for k in ("eps_in", "eps_out", "eps_design", "eps_fill")}
         for layer in problem["layers"]:
             for k in ("eps_design", "eps_fill"):
@@ -285,7 +370,7 @@ def check(problem: dict) -> dict:
             if float(layer["thickness_um"]) < 0:
                 errors.append(f"layer {i}: negative thickness")
             try:
-                rho = density(layer["pattern"], problem["period_um"], grid)
+                rho = density(layer["pattern"], problem["period_um"], grid, angle)
                 if _pixels(layer["pattern"]) and min(ox, oy) == 0 and min(rho.shape) > 1:
                     errors.append(f"layer {i}: a pixel array that varies along both axes needs orders along both")
                 if layer["pattern"].get("type") in ("rectangle", "disk") and min(ox, oy) == 0:
@@ -315,20 +400,18 @@ def check(problem: dict) -> dict:
 def _wave_vector(problem, wl_nm, inc, m, n):
     n_in = permittivity(problem.get("eps_in", 1.0)).real ** 0.5
     th, ph = math.radians(float(inc.get("theta_deg", 0.0))), math.radians(float(inc.get("phi_deg", 0.0)))
-    lx, ly = problem["period_um"]
+    (b1x, b1y), (_, b2y) = reciprocal(problem["period_um"], _angle(problem))
     wl = wl_nm / 1000.0
-    return n_in * math.sin(th) * math.cos(ph) + m * wl / lx, n_in * math.sin(th) * math.sin(ph) + n * wl / ly
+    return n_in * math.sin(th) * math.cos(ph) + m * wl * b1x, n_in * math.sin(th) * math.sin(ph) + wl * (m * b1y + n * b2y)
 
 
 def _rayleigh_gap(problem, wl_nm, inc):
-    ox, oy = _orders(problem)
     gap = math.inf
     for medium in ("eps_in", "eps_out"):
         nr = permittivity(problem.get(medium, 1.0)).real ** 0.5
-        for m in range(-ox, ox + 1):
-            for n in range(-oy, oy + 1):
-                kx, ky = _wave_vector(problem, wl_nm, inc, m, n)
-                gap = min(gap, abs(math.hypot(kx, ky) - nr) / nr)
+        for m, n in _order_list(problem):
+            kx, ky = _wave_vector(problem, wl_nm, inc, m, n)
+            gap = min(gap, abs(math.hypot(kx, ky) - nr) / nr)
     return gap
 
 
@@ -342,7 +425,8 @@ def _forward(problem, eps_design=None, eps_fill=None, orders=None):
                   eps_design=permittivity(problem["eps_design"] if eps_design is None else eps_design),
                   eps_fill=permittivity(problem.get("eps_fill", 1.0) if eps_fill is None else eps_fill),
                   eps_in=permittivity(problem.get("eps_in", 1.0)), eps_out=permittivity(problem.get("eps_out", 1.0)), detector_samples=(8, 8),
-                  rayleigh_nudge=float(problem.get("rayleigh_nudge", Stack.rayleigh_nudge)))
+                  rayleigh_nudge=float(problem.get("rayleigh_nudge", Stack.rayleigh_nudge)),
+                  lattice_angle_deg=_angle(problem), truncation=problem.get("truncation", "auto"))
     incid = problem.get("incidence") or [dict(theta_deg=0.0, phi_deg=0.0)]
     rays = tuple(Ray(math.radians(float(i.get("theta_deg", 0.0))), math.radians(float(i.get("phi_deg", 0.0))), 1.0, n_in) for i in incid)
     return ColorRouterForward(stack=stack, rays=rays, wavelengths_nm=[float(w) for w in problem["wavelengths_nm"]],
@@ -355,7 +439,7 @@ def _layers(problem, fwd, densities, exact=True):
     out = []
 
     def content(f, pattern, rho):
-        if _pixels(pattern) or (exact and _exact(pattern, problem["period_um"], f.orders)):
+        if _pixels(pattern) or (exact and _exact(pattern, problem["period_um"], f.orders, _angle(problem))):
             return _matrices(f, pattern, problem["period_um"], rho)
         return rho
 
@@ -395,14 +479,13 @@ def _tensors(problem, fwd, requires_grad=False):
     rdt = fwd.rdt
     out = []
     for layer in problem["layers"]:
-        rho = torch.tensor(density(layer["pattern"], problem["period_um"], fwd.shape), dtype=rdt, device=fwd.device)
+        rho = torch.tensor(density(layer["pattern"], problem["period_um"], fwd.shape, _angle(problem)), dtype=rdt, device=fwd.device)
         out.append(rho.requires_grad_(requires_grad))
     return out
 
 
-def order_list(orders):
-    ox, oy = orders
-    return [(m, n) for m in range(-ox, ox + 1) for n in range(-oy, oy + 1)]
+def order_list(orders, lattice_angle_deg: float = 90.0, truncation: str = "auto"):
+    return truncated_orders(tuple(orders), lattice_angle_deg, truncation)
 
 
 def _raise_if_invalid(problem):
@@ -426,7 +509,7 @@ def solve(problem: dict, threshold: float = 1e-6) -> dict:
     n_wl, n_dir = len(fwd.wavelengths_nm), len(fwd.rays)
     t = t.reshape(n_wl, n_dir, fwd.n_orders, 2)
     r = r.reshape(n_wl, n_dir, fwd.n_orders, 2)
-    orders = order_list(fwd.orders)
+    orders = fwd.order_list
     incid = problem.get("incidence") or [dict(theta_deg=0.0, phi_deg=0.0)]
     lossless = all(permittivity(v).imag == 0 for v in
                    [problem.get("eps_out", 1.0), problem["eps_design"], problem.get("eps_fill", 1.0)]
@@ -472,7 +555,7 @@ def gradient(problem: dict, order=(0, 0), side: str = "T", polarisation: str = "
     if side not in ("T", "R") or polarisation not in ("p", "s", "unpolarised"):
         raise ValueError("side is 'T' or 'R'; polarisation is 'p', 's' or 'unpolarised'")
     fwd = _forward(problem)
-    orders = order_list(fwd.orders)
+    orders = fwd.order_list
     if tuple(order) not in orders:
         raise ValueError(f"order {tuple(order)} is outside the orders kept, {fwd.orders}")
     k = orders.index(tuple(order))
@@ -503,13 +586,12 @@ def gradient(problem: dict, order=(0, 0), side: str = "T", polarisation: str = "
 
 
 def _embed(sol, size):
-    """T and R [wavelength, direction, order, (p, s)] of a solution on the orders of a larger truncation; the orders left out carry no power."""
-    ox, oy = np.abs(sol["arrays"]["orders"]).max(0)
-    out = []
-    for a in (sol["arrays"]["T"], sol["arrays"]["R"]):
-        a = a.reshape(*a.shape[:2], 2 * ox + 1, 2 * oy + 1, 2)
-        out.append(np.pad(a, ((0, 0), (0, 0), (size[0] - ox,) * 2, (size[1] - oy,) * 2, (0, 0))))
-    return np.stack(out)
+    """T and R [wavelength, direction, order, (p, s)] of a solution on the orders |m| <= size[0], |n| <= size[1]; those left out carry no power."""
+    m, n = sol["arrays"]["orders"].T
+    both = np.stack((sol["arrays"]["T"], sol["arrays"]["R"]))
+    out = np.zeros((*both.shape[:3], 2 * size[0] + 1, 2 * size[1] + 1, 2))
+    out[:, :, :, m + size[0], n + size[1]] = both
+    return out
 
 
 def _estimate(changes):
@@ -522,7 +604,7 @@ def _estimate(changes):
 def _growing_orders(problem, max_matrix_size):
     """The problem's orders and then 1.5x at each step (at least one more along an axis with orders), as far as the matrix size allows."""
     out, o = [], list(_orders(problem))
-    while not out or 2 * (2 * o[0] + 1) * (2 * o[1] + 1) <= max_matrix_size:
+    while not out or 2 * len(_order_list(problem, o)) <= max_matrix_size:
         out.append(o)
         if max(o) == 0:
             break
@@ -548,7 +630,7 @@ def convergence(problem: dict, orders_list=None, tolerance: float | None = None,
         if max(orders_list[0]) == 0:
             reason = "no orders to refine"
         if any(la["pattern"].get("type") in ("array", "npy") and not _pixels(la["pattern"]) for la in problem["layers"]):
-            fits = [o for o in orders_list if all(g >= 4 * x + 1 for g, x in zip(_grid(problem), o))] or orders_list[:1]
+            fits = [o for o in orders_list if all(g >= 4 * x + 1 for g, x in zip(_grid(problem), _extent(problem, o)))] or orders_list[:1]
             if len(fits) < len(orders_list):
                 orders_list, reason = fits, "a sampled array has no room for more orders (4 x orders + 1 samples); give more samples, or pixels: true"
     elif orders_list is None:
@@ -557,12 +639,14 @@ def convergence(problem: dict, orders_list=None, tolerance: float | None = None,
         if max(o) > 0:                                    # without orders there is nothing to refine
             orders_list += [[(3 * x + 1) // 2 for x in o], [max(2 * x, x + 2) if x > 0 else 0 for x in o]]
     largest = [max(int(o[i]) for o in orders_list) for i in (0, 1)]
-    grid = [max(g, 4 * x + 1) if x > 0 else g for g, x in zip(_grid(dict(problem, fourier_orders=largest)), largest)]
+    extent = [max(_extent(problem, o)[i] for o in orders_list) for i in (0, 1)]
+    grid = [max(g, 4 * x + 1) if x > 0 else g for g, x in zip(_grid(dict(problem, fourier_orders=largest)), extent)]
     rows, changes, previous, converged, seconds, start = [], [], None, False, 0.0, time.perf_counter()
     for k, o in enumerate(orders_list):
         if tolerance is not None and k > 0:
-            size, before = (math.prod(2 * x + 1 for x in q) for q in (o, orders_list[k - 1]))
-            if time.perf_counter() - start + seconds * (size / before) ** 3 > max_seconds:
+            size, before = (len(_order_list(problem, q)) for q in (o, orders_list[k - 1]))
+            expected = seconds * (size / before) ** 3 if k > 1 else 0.0           # the first solve includes the start-up of the GPU kernels
+            if time.perf_counter() - start + expected > max_seconds:
                 reason = "max_seconds reached"
                 break
         began = time.perf_counter()
@@ -576,7 +660,7 @@ def convergence(problem: dict, orders_list=None, tolerance: float | None = None,
         seconds = time.perf_counter() - began
         row = dict(fourier_orders=list(o), energy_error=sol["checks"]["energy_error"])
         if previous is not None:
-            both = [max(int(o[i]), int(orders_list[k - 1][i])) for i in (0, 1)]
+            both = [max(int(np.abs(s["arrays"]["orders"][:, i]).max()) for s in (sol, previous)) for i in (0, 1)]
             changes.append(float(np.abs(_embed(sol, both) - _embed(previous, both)).max()))
             row["max_change_from_previous"] = changes[-1]
         rows.append(row)

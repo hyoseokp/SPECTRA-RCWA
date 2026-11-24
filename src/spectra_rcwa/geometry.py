@@ -29,6 +29,33 @@ import torch
 TORCWA_PI = 3.141592652589793  # the constant torcwa uses (sic), kept so results match it bit for bit
 
 
+def reciprocal(period, lattice_angle_deg: float = 90.0):
+    """Reciprocal lattice vectors b1, b2 (without 2 pi) of a1 = (period_x, 0) and a2 = period_y (cos, sin)(lattice_angle_deg)."""
+    lx, ly = period
+    if lattice_angle_deg == 90:
+        return (1 / lx, 0.0), (0.0, 1 / ly)
+    c, s = math.cos(math.radians(lattice_angle_deg)), math.sin(math.radians(lattice_angle_deg))
+    return (1 / lx, -c / (lx * s)), (0.0, 1 / (ly * s))
+
+
+def truncated_orders(orders, lattice_angle_deg: float = 90.0, truncation: str = "auto") -> list[tuple[int, int]]:
+    """The diffraction orders (m, n) kept, n fastest; the (0, 0) order is in the middle.
+
+    "rectangular": |m| <= M and |n| <= N.  "circular": the ellipse through the orders (M, 0) and (0, N) that has the symmetry of the lattice,
+    (m/M)^2 + (n/N)^2 - 2 (m/M) (n/N) cos(lattice angle) <= 1; a circle in the reciprocal plane if M and N are in the ratio of the periods.
+    "auto": rectangular at 90 degrees, circular otherwise."""
+    ox, oy = orders
+    if truncation == "auto":
+        truncation = "rectangular" if lattice_angle_deg == 90 else "circular"
+    if truncation == "rectangular" or min(ox, oy) == 0:
+        return [(m, n) for m in range(-ox, ox + 1) for n in range(-oy, oy + 1)]
+    c = 0.0 if lattice_angle_deg == 90 else math.cos(math.radians(lattice_angle_deg))
+    s = math.sqrt(1 - c * c)
+    ex, ey = int(ox / s + 1e-9), int(oy / s + 1e-9)
+    return [(m, n) for m in range(-ex, ex + 1) for n in range(-ey, ey + 1)
+            if (m / ox) ** 2 + (n / oy) ** 2 - 2 * (m / ox) * (n / oy) * c <= 1 + 1e-9]
+
+
 @dataclass
 class BDD:
     """2x2 block matrix whose blocks are diagonal: [[a, b], [c, d]], each [..., N]."""
@@ -111,8 +138,8 @@ class SolveGeometry:
     out_phase: torch.Tensor      # [B, 2N]     exp(i w kz_out z_det) for the output-layer field
     vo: BDD                      # output-medium V (for H in the output layer)
     coef: torch.Tensor           # [B, 4, N]   p/s projection x power norm, evanescent zeroed
-    phase_x: torch.Tensor        # [B, Sx, Ox] exp(i w kx_order x)
-    phase_y: torch.Tensor        # [B, Sy, Oy]
+    phase_x: torch.Tensor | None  # [B, Sx, Ox] exp(i w kx_order x); None without a detector plane (orders that are not a full rectangle)
+    phase_y: torch.Tensor | None  # [B, Sy, Oy]
     thickness: float
     orders: tuple[int, int]
 
@@ -126,18 +153,23 @@ class SolveGeometry:
 
 
 def build_geometry(solves, *, orders, detector_samples, period, thickness, detector_z, device,
-                   eps_in_fn, eps_out_fn, cdt=torch.complex64) -> SolveGeometry:
+                   eps_in_fn, eps_out_fn, cdt=torch.complex64, order_list=None, lattice_angle_deg=90.0) -> SolveGeometry:
     """Constants for a list of solves ``(lam_idx, ray_idx, wl_um, theta, phi, nudge)``.
 
     ``theta`` is the polar angle in the input medium, ``thickness`` the layer thickness and ``detector_z``
-    the depth of the detector plane below the layer (all lengths in um)."""
+    the depth of the detector plane below the layer (all lengths in um).  ``order_list``: the orders kept, by default the full rectangle."""
     rdt = torch.float64 if cdt == torch.complex128 else torch.float32
     ox, oy = orders
     order_x = torch.arange(-ox, ox + 1, device=device, dtype=torch.int64)
     order_y = torch.arange(-oy, oy + 1, device=device, dtype=torch.int64)
-    n_orders = (2 * ox + 1) * (2 * oy + 1)
+    full = truncated_orders(orders)
+    order_list = full if order_list is None else order_list
+    order_m, order_n = torch.tensor(order_list, device=device, dtype=torch.int64).unbind(1)
+    n_orders = len(order_list)
+    plane = lattice_angle_deg == 90 and order_list == full
     lx, ly = period
-    ref = n_orders // 2  # the (0, 0) order in torcwa's x-major/y-minor layout
+    (b1x, b1y), (_, b2y) = reciprocal(period, lattice_angle_deg)
+    ref = n_orders // 2  # the (0, 0) order: n varies fastest, as in torcwa, and the orders come in pairs +-(m, n)
 
     rows = {k: [] for k in ("omega", "kx", "ky", "eps_out", "eps_in", "kx0", "ky0", "freq")}
     lam_idx, ray_idx, nudges, phis, thetas = [], [], [], [], []
@@ -151,17 +183,19 @@ def build_geometry(solves, *, orders, detector_samples, period, thickness, detec
         n_in = torch.real(torch.sqrt(eps_in))
         kx0 = n_in * torch.sin(inc) * torch.cos(azi)
         ky0 = n_in * torch.sin(inc) * torch.sin(azi)
-        gx, gy = 1 / (lx * freq_t), 1 / (ly * freq_t)
-        kx_ord = kx0 + order_x * gx
-        ky_ord = ky0 + order_y * gy
-        kxg, kyg = torch.meshgrid(kx_ord, ky_ord, indexing="ij")
+        if lattice_angle_deg == 90:
+            gx, gy = 1 / (lx * freq_t), 1 / (ly * freq_t)
+            ky = ky0 + order_n * gy
+        else:
+            gx, gy = b1x / freq_t, b2y / freq_t
+            ky = ky0 + (order_m * (b1y / freq_t) + order_n * gy)
         rows["omega"].append(torch.as_tensor(2 * TORCWA_PI * freq, dtype=cdt, device=device))
-        rows["kx"].append(kxg.reshape(-1))
-        rows["ky"].append(kyg.reshape(-1))
+        rows["kx"].append(kx0 + order_m * gx)
+        rows["ky"].append(ky)
         rows["eps_out"].append(eps_out)
         rows["eps_in"].append(eps_in)
-        rows["kx0"].append(kx_ord)
-        rows["ky0"].append(ky_ord)
+        rows["kx0"].append(kx0 + order_x * gx)
+        rows["ky0"].append(ky0 + order_y * gy)
         rows["freq"].append(freq_t)
         lam_idx.append(li)
         ray_idx.append(ri)
@@ -238,8 +272,8 @@ def build_geometry(solves, *, orders, detector_samples, period, thickness, detec
     sx, sy = detector_samples
     ax = (torch.arange(sx, device=device, dtype=rdt) + 0.5) * (lx / sx)
     ay = (torch.arange(sy, device=device, dtype=rdt) + 0.5) * (ly / sy)
-    phase_x = torch.exp(1j * omega[:, None, None] * kx_axis[:, None, :] * ax[None, :, None])
-    phase_y = torch.exp(1j * omega[:, None, None] * ky_axis[:, None, :] * ay[None, :, None])
+    phase_x = torch.exp(1j * omega[:, None, None] * kx_axis[:, None, :] * ax[None, :, None]) if plane else None
+    phase_y = torch.exp(1j * omega[:, None, None] * ky_axis[:, None, :] * ay[None, :, None]) if plane else None
 
     return SolveGeometry(
         omega=omega, kx=kx, ky=ky, eps_out=eps_out,

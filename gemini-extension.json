@@ -1,6 +1,6 @@
 {
   "name": "spectra-rcwa",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "RCWA (Fourier modal method) solver without eigendecomposition: diffraction efficiencies and adjoint gradients of gratings and metasurfaces, batched on a GPU.",
   "contextFileName": "AGENTS.md",
   "mcpServers": {

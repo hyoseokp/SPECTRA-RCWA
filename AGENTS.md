@@ -14,7 +14,7 @@ Good fits:
 Not a fit, or check first:
 
 - Each layer mixes two isotropic, non-magnetic materials linearly through a density in [0, 1]. Anisotropic, magnetic or graded-index (more than two materials in one layer) patterns are out of scope. A layer of other materials than the rest of the stack is possible as a stored block (no gradient through it); the MCP problem format does this with per-layer `eps_design` / `eps_fill`.
-- Rectangular lattices only (periods along x and y). No hexagonal lattice, except as a rectangular supercell.
+- Lattices with vectors a1 = (Λx, 0) and a2 = Λy (cos γ, sin γ): rectangular by default, oblique with `lattice_angle_deg` γ (60 or 120 and equal periods: hexagonal). An oblique lattice needs orders along both vectors, keeps a circle of orders (`truncation`), uses the Laurent rule, and has efficiencies and gradients but no colour-router wells.
 - A 1D grating (`fourier_orders` [M, 0] or [0, N]) uses Li's inverse rule, so TE and TM converge alike. A crossed grating uses the Laurent rule by default (`SolverConfig(factorization="li")` switches to Li's rules): metals and other high-contrast patterns converge slowly in the orders. Check convergence and say so.
 - Non-periodic devices (a finite lens, a waveguide circuit) need a full-wave solver such as FDTD; a large-area lens can only be approximated cell by cell.
 
@@ -33,7 +33,7 @@ Install a CUDA build of PyTorch first for GPU runs. Single precision on CUDA use
 - Lengths in µm, wavelengths in nm. In the Python API `Ray` angles are in radians; in the JSON problems and MCP tools, degrees.
 - Time dependence exp(−iωt): an absorbing material has Im ε > 0. Write it as ε = (n + ik)², or `{"n": n, "k": k}` in a problem.
 - Light comes from the superstrate (`eps_in`), which must be lossless; the substrate is `eps_out`. Layers are listed top first.
-- `density[i, j]` is the sample at x = iΛx/H, y = jΛy/W; density 1 is `eps_design`, 0 is `eps_fill`. H and W must be at least 4 × orders + 1.
+- `density[i, j]` is the sample at x = iΛx/H, y = jΛy/W (on an oblique lattice at (i/H) a1 + (j/W) a2); density 1 is `eps_design`, 0 is `eps_fill`. H and W must be at least 4 × orders + 1 (of the largest m and n kept).
 - `fourier_orders=(M, N)` keeps (2M + 1)(2N + 1) orders; (M, 0) is a 1D grating with ridges along y. `efficiencies` returns (T, R), each `[solves, orders, 2]`; order (m, n) is at index (m + M)(2N + 1) + (n + N). Solves run over wavelengths, then directions: index = wavelength × directions + direction.
 - The two columns are the incident polarisations p cos φ − s sin φ and p sin φ + s cos φ: p and s for φ = 0, x and y at normal incidence. The JSON problems and MCP tools report p and s for any φ.
 - Every solve runs at the frequency (1 + `rayleigh_nudge`)/λ, 1e-4 by default, to keep orders off their Rayleigh points: a 633 nm solve is at 632.94 nm. Set `rayleigh_nudge=0` in `Stack` (or the problem) to compare with an analytic result away from a Rayleigh point. π is torcwa's 3.141592652589793, so agreement with exact formulas is about 1e-9, not 1e-15.
@@ -43,7 +43,7 @@ Install a CUDA build of PyTorch first for GPU runs. Single precision on CUDA use
 Command line, problems as JSON:
 
 ```sh
-spectra-rcwa example lamellar_grating > grating.json     # also pillar_array, slab, two_layer_grating
+spectra-rcwa example lamellar_grating > grating.json     # also pillar_array, hexagonal_pillars, slab, two_layer_grating
 spectra-rcwa check grating.json                          # errors, warnings, orders, matrix size
 spectra-rcwa solve grating.json                          # every propagating order: p, s, unpolarised, angle; totals; energy check
 ```

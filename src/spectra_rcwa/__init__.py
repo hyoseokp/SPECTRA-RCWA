@@ -6,7 +6,7 @@ from .boundary import boundary_direct, layer_smatrix
 from .multilayer import MultiLayerForward
 from .pupil import shifted_disk_pupil
 
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 
 __all__ = [
     "ColorRouterForward", "AUTOGRAD_ROUTE",

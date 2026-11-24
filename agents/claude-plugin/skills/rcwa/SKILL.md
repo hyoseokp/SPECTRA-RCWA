@@ -15,7 +15,7 @@ SPECTRA-RCWA is RCWA without eigendecomposition, in PyTorch, batched on a GPU or
 ## Steps
 
 1. Call `environment` for the version, the device and the conventions.
-2. Start from the closest example (`lamellar_grating`, `pillar_array`, `slab`, `two_layer_grating`) and edit the period, orders, wavelengths, incidence, permittivities and layers. Read `problem_schema` when a field is unclear. Each layer mixes two isotropic materials; rectangular lattices only.
+2. Start from the closest example (`lamellar_grating`, `pillar_array`, `hexagonal_pillars`, `slab`, `two_layer_grating`) and edit the period, orders, wavelengths, incidence, permittivities and layers. Read `problem_schema` when a field is unclear. Each layer mixes two isotropic materials; lattices are rectangular, or oblique with `lattice_angle_deg` (60 or 120: hexagonal).
 3. Call `validate_problem` and read every warning.
 4. Call `solve_efficiencies`. For a lossless stack `checks.energy_error` should be about 1e-12 in double precision.
 5. Before quoting numbers, call `convergence_in_orders` with `tolerance` (for example 1e-3), solve at the returned `fourier_orders`, and report `estimated_error` (an estimate, not a bound); if `converged` is false, say so with the `reason`. For `array` patterns use `pixels: true` or refine `grid`. Metals converge slowly.
