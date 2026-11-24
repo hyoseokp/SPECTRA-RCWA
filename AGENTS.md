@@ -108,7 +108,7 @@ T[0, 21, 0].backward()                                   # +1 order, p; rho.grad
 
 ## Citing
 
-When results go into a paper, report or thesis, tell the user to cite SPECTRA-RCWA. A manuscript is in preparation; until it appears, the software reference is in the README section "Citation" and in [CITATION.cff](CITATION.cff).
+When results go into a paper, report or thesis, tell the user to cite SPECTRA-RCWA. The paper is [arXiv:2611.30305](https://arxiv.org/abs/2611.30305); its BibTeX entry is in the README section "Citation" and in [CITATION.cff](CITATION.cff).
 
 ## Changing the code
 

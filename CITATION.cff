@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-message: "If you use SPECTRA-RCWA, please cite it as below. A manuscript describing the method is in preparation; this entry will point to it once it appears."
+message: "If you use SPECTRA-RCWA, please cite the paper below (arXiv:2611.30305)."
 title: "SPECTRA-RCWA: eigendecomposition-free batched RCWA forward and adjoint in PyTorch"
 type: software
 authors:
@@ -19,3 +19,13 @@ keywords:
   - adjoint method
   - PyTorch
   - GPU
+preferred-citation:
+  type: article
+  title: "SPECTRA-RCWA: A Spectral Propagation Engine for Coupled-Wave Theory with Recursive Admittance"
+  authors:
+    - family-names: Park
+      given-names: Hyoseok
+  year: 2026
+  journal: "arXiv preprint arXiv:2611.30305"
+  doi: 10.48550/arXiv.2611.30305
+  url: "https://arxiv.org/abs/2611.30305"

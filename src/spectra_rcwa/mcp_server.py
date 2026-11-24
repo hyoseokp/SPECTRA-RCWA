@@ -18,8 +18,8 @@ from . import __version__
 from . import problem as P
 
 DOCS = "https://github.com/hyoseokp/spectra-rcwa"
-CITATION = ("If results go into a paper, report or thesis, cite SPECTRA-RCWA; the manuscript is in preparation, and the current "
-            "reference is in the README section 'Citation' and in CITATION.cff.")
+CITATION = ("If results go into a paper, report or thesis, cite SPECTRA-RCWA: H. Park, arXiv:2611.30305 (2026), "
+            "https://doi.org/10.48550/arXiv.2611.30305; the BibTeX entry is in the README section 'Citation'.")
 CONVENTIONS = ("Lengths in um, wavelengths in nm, angles in degrees. Time dependence exp(-i w t): absorption is Im(eps) > 0. "
                "Light comes from the superstrate (eps_in, lossless). Order (m, n) has the in-plane wave vector "
                "k_inc + (m / period_x, n / period_y) x wavelength. p and s refer to the plane of incidence; at normal incidence "
