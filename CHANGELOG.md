@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.1 (2026-11-24)
+
+Fixed
+* `convergence_in_orders` / `problem.convergence`: the default orders repeated or went down when an axis started at 1 or 2 orders (2, 4, 4 and
+  1, 3, 2), so the last change could be 0 without convergence. They now increase at every step: the problem's orders, 1.5x and 2x.
+* It solves every truncation on one grid, large enough for the largest, and returns that grid. Before, a coarse `grid` grew with the orders and
+  its error mixed into the change, and more than 63 orders on the default grid raised an error.
+* An `orders_list` that starts below the problem's orders no longer raises a KeyError.
+* The change is described as an estimate of the truncation error, not a bound.
+
 ## 1.3.0 (2026-11-23)
 
 Changed

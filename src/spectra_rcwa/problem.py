@@ -410,16 +410,21 @@ def gradient(problem: dict, order=(0, 0), side: str = "T", polarisation: str = "
 
 
 def convergence(problem: dict, orders_list=None) -> dict:
-    """Solve at increasing orders and report how much the efficiencies of the low orders change."""
-    ox, oy = _orders(problem)
+    """Solve at increasing orders, all on one grid, and report how much the efficiencies of the low orders change.
+
+    The default orders are the problem's, 1.5x and 2x, at least one more per step along an axis with orders.  The grid is the problem's,
+    refined to 4 x orders + 1 of the largest orders if it is coarser."""
     if orders_list is None:
-        orders_list = [[ox, oy], [round(ox * 1.5) + (ox > 0), round(oy * 1.5) + (oy > 0)], [2 * ox, 2 * oy]]
+        o = _orders(problem)
+        orders_list = [list(o)]
+        if max(o) > 0:                                    # without orders there is nothing to refine
+            orders_list += [[(3 * x + 1) // 2 for x in o], [max(2 * x, x + 2) if x > 0 else 0 for x in o]]
+    largest = [max(int(o[i]) for o in orders_list) for i in (0, 1)]
+    grid = [max(g, 4 * x + 1) if x > 0 else g for g, x in zip(_grid(dict(problem, fourier_orders=largest)), largest)]
+    ox, oy = orders_list[0]
     rows, previous = [], None
     for o in orders_list:
-        p = dict(problem, fourier_orders=[int(x) for x in o])
-        if "grid" in problem:
-            p["grid"] = [max(g, 4 * x + 1) if x > 0 else g for g, x in zip(problem["grid"], o)]
-        sol = solve(p)
+        sol = solve(dict(problem, fourier_orders=[int(x) for x in o], grid=grid))
         a = sol["arrays"]
         keep = {(int(m), int(n)): i for i, (m, n) in enumerate(a["orders"]) if abs(m) <= ox and abs(n) <= oy}
         cur = {key: (a["T"][:, :, i], a["R"][:, :, i]) for key, i in keep.items()}
@@ -429,5 +434,6 @@ def convergence(problem: dict, orders_list=None) -> dict:
                                                         for key in cur))
         rows.append(row)
         previous = cur
-    return dict(rows=rows, note="largest change of any efficiency of the orders up to the first truncation; report the result with the most orders "
-                                "and this change as its truncation error")
+    return dict(rows=rows, grid=grid,
+                note="largest change of any efficiency of the orders up to the first truncation, between one truncation and the next on the same grid; "
+                     "an estimate of the truncation error, not a bound on it, and it does not include the error of the grid")

@@ -367,7 +367,7 @@ A manuscript describing SPECTRA-RCWA is in preparation; until it appears, cite t
   author  = {Park, Hyoseok},
   title   = {{SPECTRA-RCWA}: eigendecomposition-free batched {RCWA} forward and adjoint in {PyTorch}},
   url     = {https://github.com/hyoseokp/spectra-rcwa},
-  version = {1.3.0},
+  version = {1.3.1},
   year    = {2026}
 }
 ```

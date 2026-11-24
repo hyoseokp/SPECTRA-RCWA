@@ -88,7 +88,7 @@ T[0, 21, 0].backward()                                   # +1 order, p; rho.grad
 ## Validate before quoting numbers
 
 1. Energy: for a lossless stack, sum(T) + sum(R) = 1 to about 1e-12 in double and 1e-5 in single precision (`checks.energy_error` in `solve`). A larger error means a malformed input or a solve next to a Rayleigh point.
-2. Convergence in the orders: repeat with about 1.5 and 2 times the orders (`convergence_in_orders`, `P.convergence`) and report the change as the truncation error. Metals and high-index contrast need many orders.
+2. Convergence in the orders: repeat with about 1.5 and 2 times the orders (`convergence_in_orders`, `P.convergence`) on one grid and report the change between truncations; it estimates the truncation error and does not bound it. Metals and high-index contrast need many orders.
 3. Convergence in the grid: the density is sampled, and an edge moves by up to one sample. For a lamellar grating, 512 samples per period gave efficiencies within 4e-5 of a converged grid; refine `grid` / `density_shape` when the edge position matters.
 4. Gradients: compare a central difference along the gradient with its norm in double precision (`fd_check=True`).
 5. A known case: the `slab` example against the Airy formula (with `rayleigh_nudge` 0), or a published grating.

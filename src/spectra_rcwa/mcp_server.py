@@ -94,7 +94,7 @@ def efficiency_gradient(problem: dict, order: list[int] | None = None, side: str
 
 
 def convergence_in_orders(problem: dict, orders_list: list[list[int]] | None = None) -> dict:
-    """Solve at increasing Fourier orders (default: the problem's, about 1.5x and 2x) and report how much the efficiencies change."""
+    """Solve at increasing Fourier orders (default: the problem's, 1.5x and 2x) on one grid and report how much the efficiencies change."""
     return P.convergence(problem, orders_list)
 
 

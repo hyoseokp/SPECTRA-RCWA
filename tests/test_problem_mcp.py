@@ -108,6 +108,33 @@ def test_convergence_in_orders():
     assert len(out["rows"]) == 2 and 0 < out["rows"][1]["max_change_from_previous"] < 0.1
 
 
+@pytest.mark.parametrize("orders", [[1, 0], [2, 0], [3, 0], [8, 0], [1, 2]])
+def test_default_orders_of_the_convergence_increase(orders):
+    """1.3.0 went 2, 4, 4 and 1, 3, 2: the last change was 0 or taken backwards."""
+    out = P.convergence(cpu(P.example("lamellar_grating"), fourier_orders=orders))
+    used = [row["fourier_orders"] for row in out["rows"]]
+    assert len(used) == 3 and used[0] == orders
+    for a, b in zip(used, used[1:]):
+        assert all((y > x) if x > 0 else y == 0 for x, y in zip(a, b))
+    assert all(row["max_change_from_previous"] > 0 for row in out["rows"][1:])
+
+
+def test_convergence_uses_one_grid():
+    problem = cpu(P.example("lamellar_grating"), fourier_orders=[2, 0], grid=[9, 1])
+    out = P.convergence(problem, [[2, 0], [4, 0], [6, 0]])
+    assert out["grid"] == [25, 1]
+    same = P.convergence(dict(problem, grid=[25, 1]), [[2, 0], [4, 0], [6, 0]])
+    assert out["rows"] == same["rows"]
+    assert P.convergence(dict(problem, fourier_orders=[4, 0]), [[2, 0], [4, 0]])["rows"][1]["max_change_from_previous"] > 0
+    big = cpu(P.example("lamellar_grating"), fourier_orders=[80, 0])              # 2x needs more than the default 512 samples
+    assert P.convergence(big)["grid"] == [641, 1]
+
+
+def test_convergence_without_orders_reports_no_change():
+    out = P.convergence(cpu(P.example("lamellar_grating"), fourier_orders=[0, 0], grid=[512, 1]))
+    assert len(out["rows"]) == 1 and "max_change_from_previous" not in out["rows"][0]
+
+
 def test_tools_save_arrays_and_gradients(results):
     out = tools.solve_efficiencies(cpu(tools.example_problem("lamellar_grating")), name="lam/1")
     saved = np.load(out["output"])
