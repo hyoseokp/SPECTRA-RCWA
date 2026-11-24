@@ -135,6 +135,105 @@ def test_convergence_without_orders_reports_no_change():
     assert len(out["rows"]) == 1 and "max_change_from_previous" not in out["rows"][0]
 
 
+def eff(problem):
+    out = P.solve(problem)["arrays"]
+    return np.concatenate([out["T"].ravel(), out["R"].ravel()])
+
+
+def sampled(monkeypatch, problem, grid):
+    with monkeypatch.context() as m:
+        m.setattr(P, "_exact", lambda *a: False)
+        return eff(dict(problem, grid=grid))
+
+
+EDGES = [                                                      # edges halfway between the samples of a grid of 4 x odd: the sampled error is O(1 / grid^2)
+    ([8, 0], dict(type="lamellar", fill_factor=0.5, center=0.375), [4 * 2001, 1]),
+    ([0, 8], dict(type="lamellar", fill_factor=0.5, center=0.375, axis="y"), [1, 4 * 2001]),
+    ([0, 2], dict(type="lamellar", fill_factor=0.5, center=0.375), [4 * 2001, 9]),
+    ([4, 1], dict(type="lamellar", fill_factor=0.5, center=0.375), [4 * 2001, 5]),
+    ([2, 2], dict(type="rectangle", size_um=[0.5, 0.25], center_um=[0.375, 0.75]), [4 * 257, 4 * 257]),
+    ([2, 2], dict(type="disk", radius_um=0.3, center_um=[0.4, 0.55]), [2048, 2048])]
+
+
+@pytest.mark.parametrize("orders, pattern, grid", EDGES)
+@pytest.mark.parametrize("eps", [6.0, dict(n=0.5, k=2.0)])
+def test_exact_coefficients_are_the_limit_of_the_samples(orders, pattern, grid, eps, monkeypatch):
+    problem = cpu(P.example("lamellar_grating"), fourier_orders=orders, eps_design=eps, incidence=[dict(theta_deg=20.0, phi_deg=35.0)],
+                  layers=[dict(thickness_um=0.3, pattern=pattern)])
+    exact = eff(problem)
+    assert np.abs(sampled(monkeypatch, problem, grid) - exact).max() < (1e-3 if pattern["type"] == "disk" else 5e-5)
+    assert np.array_equal(eff(dict(problem, grid=[4 * o + 1 for o in orders])), exact)          # the grid plays no part
+
+
+def test_exact_layers_next_to_sampled_layers_and_other_materials(monkeypatch):
+    example = P.example("two_layer_grating")
+    layers = [dict(thickness_um=0.2, pattern=dict(type="lamellar", fill_factor=0.5, center=0.375)), dict(thickness_um=0.1, pattern=dict(type="uniform", value=0.4)),
+              dict(thickness_um=0.2, pattern=dict(type="lamellar", fill_factor=0.5, center=0.625), eps_design=3.0)]
+    problem = cpu(example, layers=layers)
+    assert np.abs(sampled(monkeypatch, problem, [4 * 2001, 1]) - eff(problem)).max() < 5e-5
+
+
+@pytest.mark.parametrize("orders, shape", [([8, 0], (6, 1)), ([0, 8], (1, 6)), ([3, 3], (6, 5))])
+def test_pixel_arrays(orders, shape):
+    """Constant over pixels centred on the samples: the limit of a finer sampling, with a gradient with respect to the pixels."""
+    rho = 0.1 + 0.8 * np.random.default_rng(0).random(shape)
+    problem = cpu(P.example("lamellar_grating"), fourier_orders=orders, layers=[dict(thickness_um=0.3, pattern=dict(type="array", density=rho.tolist(), pixels=True))])
+    fine = rho
+    for axis in (0, 1):
+        if shape[axis] > 1:
+            fine = np.roll(np.repeat(fine, 151, axis), -75, axis)
+    other = dict(problem, grid=list(fine.shape), layers=[dict(thickness_um=0.3, pattern=dict(type="array", density=fine))])
+    assert np.abs(eff(other) - eff(problem)).max() < 1e-4
+    g = P.gradient(problem, order=(0, 0), fd_check=True)
+    assert g["gradients"][0].shape == shape
+    assert math.isclose(g["fd_check"]["central_difference"], g["fd_check"]["gradient_norm"], rel_tol=1e-6)
+    sol = P.solve(problem)["arrays"]
+    assert math.isclose(g["value"], sol["T"][0, 0, len(sol["orders"]) // 2].mean(), rel_tol=1e-10)
+
+
+def test_pixels_that_make_a_bar_are_a_lamellar_layer():
+    bar = dict(type="lamellar", fill_factor=3 / 7, center=2 / 7)                                # pixels 1, 2 and 3 of 7, centred on 1/7, 2/7, 3/7
+    pixels = dict(type="array", density=[0, 1, 1, 1, 0, 0, 0], pixels=True)
+    a, b = (eff(cpu(P.example("lamellar_grating"), layers=[dict(thickness_um=0.5, pattern=p)])) for p in (bar, pixels))
+    assert np.abs(a - b).max() < 1e-12
+
+
+def test_pixel_array_needs_orders_along_both_axes():
+    problem = cpu(P.example("lamellar_grating"), layers=[dict(thickness_um=0.3, pattern=dict(type="array", density=[[0, 1], [1, 0]], pixels=True))])
+    assert "orders along both" in P.check(problem)["errors"][0]
+
+
+def test_a_disk_in_a_one_dimensional_problem_warns():
+    assert any("lamellar" in w for w in P.check(cpu(P.example("pillar_array"), fourier_orders=[5, 0]))["warnings"])
+
+
+@pytest.mark.parametrize("start", [[1, 0], [8, 0]])
+@pytest.mark.parametrize("eps", [4.0, 12.0])
+def test_convergence_to_a_tolerance(start, eps):
+    problem = cpu(P.example("lamellar_grating"), fourier_orders=start, eps_design=eps,
+                  layers=[dict(thickness_um=0.5, pattern=dict(type="lamellar", fill_factor=0.3))])
+    out = tools.convergence_in_orders(problem, tolerance=1e-3)
+    assert out["converged"] and out["estimated_error"] <= 1e-3 and "reason" not in out
+    ref = [200, 0]
+    final, fine = (P._embed(P.solve(dict(problem, fourier_orders=o)), ref) for o in (out["fourier_orders"], ref))
+    assert np.abs(final - fine).max() < 1e-3
+
+
+def test_convergence_says_when_it_stops_short():
+    problem = cpu(P.example("lamellar_grating"), fourier_orders=[4, 0], eps_design=12.0)
+    out = P.convergence(problem, tolerance=1e-9, max_matrix_size=100)
+    assert not out["converged"] and out["reason"] == "max_matrix_size reached" and out["fourier_orders"] == [21, 0]
+    out = P.convergence(problem, tolerance=1e-9, max_seconds=0)
+    assert not out["converged"] and out["reason"] == "max_seconds reached" and len(out["rows"]) == 1 and out["estimated_error"] is None
+    out = P.convergence(dict(problem, fourier_orders=[0, 0]), tolerance=1e-3)
+    assert not out["converged"] and out["reason"] == "no orders to refine"
+    array = dict(problem, grid=[64, 1], layers=[dict(thickness_um=0.5, pattern=dict(type="array", density=[1.0] * 32 + [0.0] * 32))])
+    out = P.convergence(array, tolerance=1e-9)
+    assert not out["converged"] and "array" in out["reason"] and out["fourier_orders"] == [14, 0] and out["grid"] == [64, 1]
+    with pytest.raises(ValueError):
+        P.convergence(problem, [[2, 0]], tolerance=1e-3)
+
+
 def test_tools_save_arrays_and_gradients(results):
     out = tools.solve_efficiencies(cpu(tools.example_problem("lamellar_grating")), name="lam/1")
     saved = np.load(out["output"])

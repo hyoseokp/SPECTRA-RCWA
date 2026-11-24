@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import copy
 import math
+import time
 from pathlib import Path
 
 import numpy as np
 import torch
 
+from . import lapack
 from .config import DEFAULT
 from .forward import ColorRouterForward, Ray, Stack
 
@@ -66,14 +68,18 @@ SCHEMA = {
         "eps_design": PERMITTIVITY | {"description": "Permittivity where the density is 1"},
         "eps_fill": PERMITTIVITY | {"description": "Permittivity where the density is 0 (default 1, air)"},
         "grid": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2,
-                 "description": "Samples of each layer's density along x and y; at least 4 x orders + 1. Default 512 along an axis with orders, 1 without."},
+                 "description": "Samples of each layer's density along x and y; at least 4 x orders + 1. Default 512 (more if the orders need it) along an axis "
+                                "with orders, 1 without. solve uses exact Fourier coefficients, not samples, for lamellar layers and, in a crossed grating, "
+                                "for rectangles and disks."},
         "layers": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["thickness_um", "pattern"], "properties": {
             "thickness_um": {"type": "number"},
             "pattern": {"type": "object", "description":
                         "Density in [0, 1] mixing eps_fill (0) and eps_design (1) linearly. type: 'uniform' {value}; "
                         "'lamellar' {fill_factor, axis 'x' or 'y', center as a fraction of the period, default 0.5}; "
                         "'disk' {radius_um, center_um [x, y], default the cell centre}; 'rectangle' {size_um [a, b], center_um}; "
-                        "'array' {density: nested list [grid x][grid y]}; 'npy' {path: a .npy file of shape grid}."},
+                        "'array' {density: nested list [grid x][grid y]}; 'npy' {path: a .npy file of shape grid}. An array is point samples at "
+                        "(i period_x / H, j period_y / W); with pixels: true it is constant over rectangular pixels centred there, of any shape "
+                        "(not tied to grid), and its Fourier coefficients are exact."},
             "eps_design": PERMITTIVITY | {"description": "Optional: other materials for this layer. Such a layer gets no gradient."},
             "eps_fill": PERMITTIVITY}}},
         "rayleigh_nudge": {"type": "number", "description": "Every solve runs at the frequency (1 + rayleigh_nudge) / wavelength, which keeps the orders off "
@@ -109,11 +115,20 @@ def _orders(problem) -> tuple[int, int]:
 def _grid(problem) -> tuple[int, int]:
     if "grid" in problem:
         return tuple(int(x) for x in problem["grid"])
-    return tuple(512 if o > 0 else 1 for o in _orders(problem))
+    return tuple(max(512, 4 * o + 1) if o > 0 else 1 for o in _orders(problem))
+
+
+def _array(pattern: dict) -> np.ndarray:
+    rho = np.asarray(pattern["density"], dtype=float) if pattern["type"] == "array" else np.load(Path(pattern["path"]), allow_pickle=False).astype(float)
+    return rho[:, None] if rho.ndim == 1 else rho
+
+
+def _pixels(pattern: dict) -> bool:
+    return pattern.get("type") in ("array", "npy") and bool(pattern.get("pixels"))
 
 
 def density(pattern: dict, period_um, grid) -> np.ndarray:
-    """Density samples of a pattern; sample [i, j] sits at x = i period_x / H, y = j period_y / W."""
+    """Density samples of a pattern; sample [i, j] sits at x = i period_x / H, y = j period_y / W.  An array with ``pixels`` is returned as it is."""
     h, w = grid
     lx, ly = period_um
     x = (np.arange(h) / h * lx)[:, None]
@@ -142,19 +157,85 @@ def density(pattern: dict, period_um, grid) -> np.ndarray:
         a, b = pattern["size_um"]
         cx, cy = pattern.get("center_um", (lx / 2, ly / 2))
         rho = (inside(x, cx, a, lx) & inside(y, cy, b, ly)).astype(float)
-    elif kind == "array":
-        rho = np.asarray(pattern["density"], dtype=float)
-        if rho.ndim == 1:
-            rho = rho[:, None]
-    elif kind == "npy":
-        rho = np.load(Path(pattern["path"]), allow_pickle=False).astype(float)
-        if rho.ndim == 1:
-            rho = rho[:, None]
+    elif kind in ("array", "npy"):
+        rho = _array(pattern)
+        if pattern.get("pixels"):
+            return np.ascontiguousarray(rho)
     else:
         raise ValueError(f"unknown pattern type {kind!r}: uniform, lamellar, disk, rectangle, array or npy")
     if rho.shape != (h, w):
         raise ValueError(f"pattern density has shape {rho.shape}, the grid is {(h, w)}")
     return np.ascontiguousarray(rho)
+
+
+def _exact(pattern: dict, period_um, orders) -> bool:
+    """Whether the Fourier coefficients of a pattern are used exactly instead of from samples.
+
+    Any lamellar pattern; a rectangle or a disk (that does not reach into the next cell) of a crossed grating.  With orders along one axis only,
+    Li's rule needs the pattern to vary along one axis."""
+    kind = pattern.get("type")
+    if kind == "disk" and 2 * float(pattern["radius_um"]) > min(period_um):
+        return False
+    return kind == "lamellar" or _pixels(pattern) or (kind in ("rectangle", "disk") and min(orders) > 0)
+
+
+def coefficients(pattern: dict, period_um, m, n) -> torch.Tensor:
+    """Fourier coefficients (1 / cell) int rho exp(-2 pi i (m x / period_x + n y / period_y)) of a lamellar, rectangle or disk pattern."""
+    lx, ly = (float(p) for p in period_um)
+    m, n = torch.as_tensor(m, dtype=torch.float64), torch.as_tensor(n, dtype=torch.float64)
+
+    def bar(k, fill, center):
+        fill = min(max(fill, 0.0), 1.0)
+        return fill * torch.sinc(k * fill) * torch.exp(-2j * math.pi * k * center)
+
+    kind = pattern["type"]
+    if kind == "lamellar":
+        k, other = (m, n) if pattern.get("axis", "x") == "x" else (n, m)
+        return bar(k, float(pattern["fill_factor"]), float(pattern.get("center", 0.5))) * (other == 0)
+    cx, cy = pattern.get("center_um", (lx / 2, ly / 2))
+    if kind == "rectangle":
+        a, b = pattern["size_um"]
+        return bar(m, float(a) / lx, float(cx) / lx) * bar(n, float(b) / ly, float(cy) / ly)
+    if kind == "disk":
+        radius = float(pattern["radius_um"])
+        u = 2 * math.pi * radius * torch.hypot(m / lx, n / ly)
+        shape = torch.where(u == 0, 0.5, torch.special.bessel_j1(u) / torch.where(u == 0, 1.0, u))        # J1(u) / u
+        return 2 * math.pi * radius ** 2 / (lx * ly) * shape * torch.exp(-2j * math.pi * (m * float(cx) / lx + n * float(cy) / ly))
+    raise ValueError(f"no closed form for pattern type {kind!r}")
+
+
+def _pixel_coefficients(values: torch.Tensor, m, n) -> torch.Tensor:
+    """Fourier coefficients [..., orders] of values [..., H, W] constant over pixels centred on x = i period_x / H, y = j period_y / W."""
+    h, w = values.shape[-2:]
+    spec = torch.fft.fft2(values) / (h * w)
+    return spec[..., m % h, n % w] * torch.sinc(m.double() / h) * torch.sinc(n.double() / w)
+
+
+def _matrices(fwd, pattern: dict, period_um, rho: torch.Tensor):
+    """Permittivity matrices (E [L, 2, N, N], E^-1 [L, N, N]) of a layer from exact Fourier coefficients, by the rule of SolverConfig "auto"."""
+    ox, oy = fwd.orders
+    m, n = torch.meshgrid(torch.arange(-2 * ox, 2 * ox + 1), torch.arange(-2 * oy, 2 * oy + 1), indexing="ij")
+    orders = torch.tensor(order_list(fwd.orders))
+    dm, dn = (orders[:, None] - orders[None, :]).unbind(-1)
+    row, col = (dm + 2 * ox).to(fwd.device), (dn + 2 * oy).to(fwd.device)
+    lo, hi = fwd.eps_bg.to(torch.complex128)[:, None, None], fwd.eps_design.to(torch.complex128)[:, None, None]
+    if _pixels(pattern):
+        m, n = m.to(fwd.device), n.to(fwd.device)
+        values = lo + rho.to(torch.complex128) * (hi - lo)
+        eps, inv = _pixel_coefficients(values, m, n), _pixel_coefficients(1 / values, m, n)
+        along_y = rho.shape[0] == 1
+    else:
+        one = ((m == 0) & (n == 0)).to(torch.complex128).to(fwd.device)
+        c = coefficients(pattern, period_um, m, n).to(fwd.device)
+        eps, inv = lo * one + (hi - lo) * c, one / lo + (1 / hi - 1 / lo) * c
+        along_y = pattern.get("axis") == "y"
+    laurent = eps[:, row, col]
+    if min(fwd.orders) > 0:
+        e = laurent[:, None].expand(-1, 2, -1, -1)
+    else:                                                  # Li: the inverse rule for the component across the edges
+        across = lapack.inv(inv[:, row, col])
+        e = torch.stack((laurent, across) if along_y else (across, laurent), 1)
+    return e.to(fwd.cdt), lapack.inv(laurent.to(fwd.cdt))
 
 
 def cuda_kernels_available() -> bool:
@@ -200,13 +281,16 @@ def check(problem: dict) -> dict:
                 errors.append(f"theta_deg {inc.get('theta_deg')} must be in [0, 90)")
         if not problem["layers"]:
             errors.append("need at least one layer; a bare interface is a layer of any pattern with thickness 0")
-        rhos = []
         for i, layer in enumerate(problem["layers"]):
             if float(layer["thickness_um"]) < 0:
                 errors.append(f"layer {i}: negative thickness")
             try:
                 rho = density(layer["pattern"], problem["period_um"], grid)
-                rhos.append(rho)
+                if _pixels(layer["pattern"]) and min(ox, oy) == 0 and min(rho.shape) > 1:
+                    errors.append(f"layer {i}: a pixel array that varies along both axes needs orders along both")
+                if layer["pattern"].get("type") in ("rectangle", "disk") and min(ox, oy) == 0:
+                    warnings.append(f"layer {i}: with orders along one axis a {layer['pattern']['type']} is sampled on the grid {grid}, not exact; "
+                                    "with one sample along an axis only the line at 0 is seen. Use a lamellar pattern or orders along both axes")
                 if rho.min() < 0 or rho.max() > 1:
                     warnings.append(f"layer {i}: density outside [0, 1] extrapolates the permittivity linearly")
             except Exception as exc:  # noqa: BLE001 - reported to the caller
@@ -265,17 +349,24 @@ def _forward(problem, eps_design=None, eps_fill=None, orders=None):
                               device=device, dtype=dtype, config=DEFAULT)
 
 
-def _layers(problem, fwd, densities):
-    """stack_field layers: (density, thickness) for layers of the problem's materials, stored blocks for the others."""
+def _layers(problem, fwd, densities, exact=True):
+    """stack_field layers: (density or permittivity matrices, thickness) for layers of the problem's materials, stored blocks for the others.
+    Without ``exact`` the shapes are sampled, so that the gradient with respect to the samples exists; pixel arrays never are."""
     out = []
+
+    def content(f, pattern, rho):
+        if _pixels(pattern) or (exact and _exact(pattern, problem["period_um"], f.orders)):
+            return _matrices(f, pattern, problem["period_um"], rho)
+        return rho
+
     for layer, rho in zip(problem["layers"], densities):
         if "eps_design" in layer or "eps_fill" in layer:
             other = _forward(problem, layer.get("eps_design", problem["eps_design"]), layer.get("eps_fill", problem.get("eps_fill", 1.0)),
                              orders=fwd.orders)
             with torch.no_grad():
-                out.append(other.layer_block(rho.detach(), float(layer["thickness_um"])))
+                out.append(other.layer_block(content(other, layer["pattern"], rho.detach()), float(layer["thickness_um"])))
         else:
-            out.append((rho, float(layer["thickness_um"])))
+            out.append((content(fwd, layer["pattern"], rho), float(layer["thickness_um"])))
     return out
 
 
@@ -373,6 +464,8 @@ def solve(problem: dict, threshold: float = 1e-6) -> dict:
 def gradient(problem: dict, order=(0, 0), side: str = "T", polarisation: str = "unpolarised", fd_check: bool = False) -> dict:
     """Mean over wavelengths and directions of the efficiency of one order, and its gradient with respect to the density of every layer.
 
+    The density samples on ``grid`` are the variables, so shapes are sampled here and the value differs from :func:`solve` by the sampling error;
+    the variables of an array with ``pixels`` are its pixels, and the value is that of :func:`solve`.
     Layers with their own eps_design / eps_fill get no gradient (None).  With ``fd_check`` a central difference along the gradient
     direction is compared with the gradient's norm (use precision 'double' for that)."""
     _raise_if_invalid(problem)
@@ -386,7 +479,7 @@ def gradient(problem: dict, order=(0, 0), side: str = "T", polarisation: str = "
     cols = {"p": [0], "s": [1], "unpolarised": [0, 1]}[polarisation]
 
     def objective(rhos):
-        t, r = _efficiencies_ps(fwd, _layers(problem, fwd, rhos))
+        t, r = _efficiencies_ps(fwd, _layers(problem, fwd, rhos, exact=False))
         return (t if side == "T" else r)[:, k, cols].mean()
 
     rhos = _tensors(problem, fwd, requires_grad=True)
@@ -396,7 +489,7 @@ def gradient(problem: dict, order=(0, 0), side: str = "T", polarisation: str = "
     grads = [g.double().cpu().numpy() if (g is not None and f) else None for g, f in zip(grads, free)]
     out = dict(value=float(value), order=list(order), side=side, polarisation=polarisation, gradients=grads)
     if fd_check:
-        direction = [torch.tensor(g if g is not None else np.zeros(fwd.shape), dtype=fwd.rdt, device=fwd.device) for g in grads]
+        direction = [torch.tensor(g if g is not None else np.zeros(r.shape), dtype=fwd.rdt, device=fwd.device) for g, r in zip(grads, rhos)]
         norm = float(sum((d.double() ** 2).sum() for d in direction)) ** 0.5
         if norm > 0:
             h = 1e-5 if fwd.cdt == torch.complex128 else 1e-2
@@ -409,31 +502,94 @@ def gradient(problem: dict, order=(0, 0), side: str = "T", polarisation: str = "
     return out
 
 
-def convergence(problem: dict, orders_list=None) -> dict:
-    """Solve at increasing orders, all on one grid, and report how much the efficiencies of the low orders change.
+def _embed(sol, size):
+    """T and R [wavelength, direction, order, (p, s)] of a solution on the orders of a larger truncation; the orders left out carry no power."""
+    ox, oy = np.abs(sol["arrays"]["orders"]).max(0)
+    out = []
+    for a in (sol["arrays"]["T"], sol["arrays"]["R"]):
+        a = a.reshape(*a.shape[:2], 2 * ox + 1, 2 * oy + 1, 2)
+        out.append(np.pad(a, ((0, 0), (0, 0), (size[0] - ox,) * 2, (size[1] - oy,) * 2, (0, 0))))
+    return np.stack(out)
 
-    The default orders are the problem's, 1.5x and 2x, at least one more per step along an axis with orders.  The grid is the problem's,
-    refined to 4 x orders + 1 of the largest orders if it is coarser."""
-    if orders_list is None:
+
+def _estimate(changes):
+    """Error left after the last of the changes, as a geometric series with the ratio of the last two, and at least the last change."""
+    last, before = changes[-1], changes[-2]
+    q = min(last / before, 0.9) if before > 0 else 0.0
+    return last * max(1.0, q / (1 - q))
+
+
+def _growing_orders(problem, max_matrix_size):
+    """The problem's orders and then 1.5x at each step (at least one more along an axis with orders), as far as the matrix size allows."""
+    out, o = [], list(_orders(problem))
+    while not out or 2 * (2 * o[0] + 1) * (2 * o[1] + 1) <= max_matrix_size:
+        out.append(o)
+        if max(o) == 0:
+            break
+        o = [(3 * x + 1) // 2 for x in o]
+    return out
+
+
+def convergence(problem: dict, orders_list=None, tolerance: float | None = None, max_matrix_size: int = 2000, max_seconds: float = 300.0) -> dict:
+    """Solve at increasing orders, all on one grid, and report how much the efficiencies change.
+
+    Without ``tolerance`` the orders are ``orders_list``, or the problem's, 1.5x and 2x, at least one more per step along an axis with orders.
+    With ``tolerance`` the orders grow by 1.5x from the problem's until the last two changes and the estimated error are all at most
+    ``tolerance``; ``converged`` is False, with a ``reason``, when the layer matrix would exceed ``max_matrix_size``, the next solve is expected
+    to end after ``max_seconds``, the GPU memory runs out, or a sampled array has no room for more orders.  The change is the largest over all
+    efficiencies, an order left out of a truncation counting as 0.  The grid is the problem's, refined to 4 x orders + 1 of the largest orders."""
+    reason = "max_matrix_size reached"
+    if tolerance is not None:
+        if orders_list is not None:
+            raise ValueError("give orders_list or tolerance, not both")
+        if not tolerance > 0:
+            raise ValueError("tolerance must be positive")
+        orders_list = _growing_orders(problem, max_matrix_size)
+        if max(orders_list[0]) == 0:
+            reason = "no orders to refine"
+        if any(la["pattern"].get("type") in ("array", "npy") and not _pixels(la["pattern"]) for la in problem["layers"]):
+            fits = [o for o in orders_list if all(g >= 4 * x + 1 for g, x in zip(_grid(problem), o))] or orders_list[:1]
+            if len(fits) < len(orders_list):
+                orders_list, reason = fits, "a sampled array has no room for more orders (4 x orders + 1 samples); give more samples, or pixels: true"
+    elif orders_list is None:
         o = _orders(problem)
         orders_list = [list(o)]
         if max(o) > 0:                                    # without orders there is nothing to refine
             orders_list += [[(3 * x + 1) // 2 for x in o], [max(2 * x, x + 2) if x > 0 else 0 for x in o]]
     largest = [max(int(o[i]) for o in orders_list) for i in (0, 1)]
     grid = [max(g, 4 * x + 1) if x > 0 else g for g, x in zip(_grid(dict(problem, fourier_orders=largest)), largest)]
-    ox, oy = orders_list[0]
-    rows, previous = [], None
-    for o in orders_list:
-        sol = solve(dict(problem, fourier_orders=[int(x) for x in o], grid=grid))
-        a = sol["arrays"]
-        keep = {(int(m), int(n)): i for i, (m, n) in enumerate(a["orders"]) if abs(m) <= ox and abs(n) <= oy}
-        cur = {key: (a["T"][:, :, i], a["R"][:, :, i]) for key, i in keep.items()}
+    rows, changes, previous, converged, seconds, start = [], [], None, False, 0.0, time.perf_counter()
+    for k, o in enumerate(orders_list):
+        if tolerance is not None and k > 0:
+            size, before = (math.prod(2 * x + 1 for x in q) for q in (o, orders_list[k - 1]))
+            if time.perf_counter() - start + seconds * (size / before) ** 3 > max_seconds:
+                reason = "max_seconds reached"
+                break
+        began = time.perf_counter()
+        try:
+            sol = solve(dict(problem, fourier_orders=[int(x) for x in o], grid=grid))
+        except torch.cuda.OutOfMemoryError:
+            if tolerance is None or not rows:
+                raise
+            reason = "out of GPU memory"
+            break
+        seconds = time.perf_counter() - began
         row = dict(fourier_orders=list(o), energy_error=sol["checks"]["energy_error"])
         if previous is not None:
-            row["max_change_from_previous"] = float(max(max(np.abs(cur[key][0] - previous[key][0]).max(), np.abs(cur[key][1] - previous[key][1]).max())
-                                                        for key in cur))
+            both = [max(int(o[i]), int(orders_list[k - 1][i])) for i in (0, 1)]
+            changes.append(float(np.abs(_embed(sol, both) - _embed(previous, both)).max()))
+            row["max_change_from_previous"] = changes[-1]
         rows.append(row)
-        previous = cur
-    return dict(rows=rows, grid=grid,
-                note="largest change of any efficiency of the orders up to the first truncation, between one truncation and the next on the same grid; "
-                     "an estimate of the truncation error, not a bound on it, and it does not include the error of the grid")
+        previous = sol
+        if tolerance is not None and len(changes) > 1 and max(*changes[-2:], _estimate(changes)) <= tolerance:
+            converged = True
+            break
+    out = dict(rows=rows, grid=grid,
+               note="largest change of any efficiency between one truncation and the next on the same grid, an order left out counting as 0; an estimate of "
+                    "the truncation error, not a bound on it, and it does not include the error of sampled patterns (see grid)")
+    if tolerance is not None:
+        out.update(converged=converged, tolerance=tolerance, fourier_orders=rows[-1]["fourier_orders"],
+                   estimated_error=_estimate(changes) if len(changes) > 1 else None)
+        if not converged:
+            out["reason"] = reason
+    return out

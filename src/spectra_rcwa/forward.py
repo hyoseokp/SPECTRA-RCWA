@@ -238,6 +238,16 @@ class ColorRouterForward:
         eyy = _take(fy, self.conv_ix, gy[:, None], gy[None, :])
         return torch.stack((exx, eyy), 1), lapack.inv(e)
 
+    def _rows(self, layers):
+        """:meth:`_econv` of a list of layers, each a density [H, W] or its permittivity matrices (E [L, 2, N, N], E^-1 [L, N, N])."""
+        sampled = [x for x in layers if not isinstance(x, tuple)]
+        if len(sampled) == len(layers):
+            return self._econv(torch.stack(sampled))
+        n_wl = len(self.wavelengths_nm)
+        rows = iter(zip(*(a.split(n_wl) for a in self._econv(torch.stack(sampled))))) if sampled else iter(())
+        pairs = [x if isinstance(x, tuple) else next(rows) for x in layers]
+        return torch.cat([e for e, _ in pairs]), torch.cat([einv for _, einv in pairs])
+
     def _p(self, einv_all, g: SolveGeometry):
         n = self.n_orders
         ei = einv_all[g.lam_index]
@@ -295,16 +305,17 @@ class ColorRouterForward:
         reference basis, for all solves or those listed.  It depends on this layer alone: keep it and pass it to stack_field, with the same
         ``solves``, for as long as the layer does not change."""
         self._prepare()
-        e_all, einv_all = self._econv(density[None])
+        e_all, einv_all = self._rows([density])
         return self._layer_block(e_all, einv_all, self._solves(0, solves), float(thickness_um))
 
     def stack_field(self, layers, solves=None, return_top: bool = False):
         """Field below a stack for both polarisations, [b, 2N, 2], with return_top also (below, top), between the superstrate and
-        substrate of ``self.stack``.  ``layers``, top first: (density [H, W], thickness in um) or a stored layer_block."""
+        substrate of ``self.stack``.  ``layers``, top first: (density [H, W], thickness in um) or a stored layer_block.
+        In place of a density, the permittivity matrices of :meth:`_rows`."""
         self._prepare()
         stored = [torch.is_tensor(x[1]) and x[1].ndim == 3 for x in layers]          # a stored block is (T, R); anything else is (density, thickness)
         densities = [x[0] for x, s in zip(layers, stored) if not s]
-        e_all, einv_all = self._econv(torch.stack(densities)) if densities else (None, None)
+        e_all, einv_all = self._rows(densities) if densities else (None, None)
         items, slot = [], 0
         for x, s in zip(layers, stored):
             if not s:

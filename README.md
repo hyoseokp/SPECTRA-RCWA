@@ -229,6 +229,8 @@ t, r = fwd.efficiencies([(rho_a, 0.25), (rho_b, 0.25)])      # order (m, n) at i
   z in the reference medium, azimuth from x). Light comes from the superstrate, which is lossless. The two columns of a field are the
   polarisations p cos φ − s sin φ and p sin φ + s cos φ, which are x and y at normal incidence.
 * `density[i, j]` is the sample at x = iΛx/H, y = jΛy/W (band-limited samples, first index along x), with H and W at least 4 × orders + 1.
+  In a JSON problem, `solve` uses exact Fourier coefficients instead of samples for lamellar layers, for rectangles and disks of a crossed grating,
+  and for arrays with `pixels: true`; `convergence_in_orders` with a `tolerance` raises the orders until the efficiencies settle.
   The detector samples sit at (k + 0.5)Λ/S, and a well is its share of |E|² on the detector plane, a midpoint rule on `detector_samples`, times the
   total transmission.
 * Every solve runs at the frequency (1 + `rayleigh_nudge`)/λ, 1e-4 by default, so that no order of the half-spaces sits on a Rayleigh point; π is
@@ -383,7 +385,7 @@ To cite a particular version of the code as well:
   title   = {{SPECTRA-RCWA}: eigendecomposition-free batched {RCWA} forward and adjoint in {PyTorch}},
   doi     = {10.5281/zenodo.24459563},
   url     = {https://github.com/hyoseokp/spectra-rcwa},
-  version = {1.3.1},
+  version = {1.4.0},
   year    = {2026}
 }
 ```

@@ -84,7 +84,7 @@ pr["layers"][0]["pattern"]["fill_factor"] = 0.4
 print(P.check(pr))                                       # read the warnings
 sol = P.solve(pr)                                        # sol["results"], sol["checks"]["energy_error"], sol["arrays"]["T"]
 g = P.gradient(pr, order=(1, 0), side="T", polarisation="p", fd_check=True)
-print(P.convergence(pr))                                 # efficiencies at more orders
+print(P.convergence(pr, tolerance=1e-3))                 # more orders until the change is below it: converged, fourier_orders, estimated_error
 ```
 
 Python, the solver directly (gradients of any objective through autograd):
@@ -114,14 +114,14 @@ T[0, 21, 0].backward()                                   # +1 order, p; rho.grad
 ## Validate before quoting numbers
 
 1. Energy: for a lossless stack, sum(T) + sum(R) = 1 to about 1e-12 in double and 1e-5 in single precision (`checks.energy_error` in `solve`). A larger error means a malformed input or a solve next to a Rayleigh point.
-2. Convergence in the orders: repeat with about 1.5 and 2 times the orders (`convergence_in_orders`, `P.convergence`) on one grid and report the change between truncations; it estimates the truncation error and does not bound it. Metals and high-index contrast need many orders.
-3. Convergence in the grid: the density is sampled, and an edge moves by up to one sample. For a lamellar grating, 512 samples per period gave efficiencies within 4e-5 of a converged grid; refine `grid` / `density_shape` when the edge position matters.
+2. Convergence in the orders: `convergence_in_orders` (`P.convergence`) with `tolerance`, which raises the orders by 1.5x until the last two changes and the estimated error are below it; use the returned `fourier_orders`, and if `converged` is false report the `reason`. Without `tolerance` it solves at 1.5 and 2 times the orders and returns the changes. The estimate is not a bound: for a metal grating it was half the error. Metals and high-index contrast need many orders.
+3. Sampling: in a problem (JSON), `solve` uses exact Fourier coefficients for `lamellar` layers and, in a crossed grating, for `rectangle` and `disk`; an `array` is exact over its pixels with `pixels: true`. Other densities, every density given to the Python solver, and the shapes in `gradient` are samples: an edge moves by up to one sample, which at 512 samples per period changed efficiencies by about 5e-3 for fill factor 0.3 and is not seen by the convergence in the orders. Refine `grid` / `density_shape` there.
 4. Gradients: compare a central difference along the gradient with its norm in double precision (`fd_check=True`).
 5. A known case: the `slab` example against the Airy formula (with `rayleigh_nudge` 0), or a published grating.
 
 ## Pitfalls
 
-- A pattern grid coarser than 4 × orders + 1 is rejected; the MCP default grid is 512 along every axis with orders.
+- A pattern grid coarser than 4 × orders + 1 is rejected; the default grid of a problem is 512 (more if the orders need it) along every axis with orders.
 - Im ε < 0 is gain in this convention and is rejected; a lossy superstrate is rejected.
 - `fourier_orders=(M, 0)` with a 2D pattern ignores the pattern's y variation only if the density is constant along y; give a 1D grating `density_shape=(H, 1)`.
 - One GPU per process: the kernels belong to the current CUDA device. Select it with `CUDA_VISIBLE_DEVICES`.
@@ -376,6 +376,8 @@ t, r = fwd.efficiencies([(rho_a, 0.25), (rho_b, 0.25)])      # order (m, n) at i
   z in the reference medium, azimuth from x). Light comes from the superstrate, which is lossless. The two columns of a field are the
   polarisations p cos φ − s sin φ and p sin φ + s cos φ, which are x and y at normal incidence.
 * `density[i, j]` is the sample at x = iΛx/H, y = jΛy/W (band-limited samples, first index along x), with H and W at least 4 × orders + 1.
+  In a JSON problem, `solve` uses exact Fourier coefficients instead of samples for lamellar layers, for rectangles and disks of a crossed grating,
+  and for arrays with `pixels: true`; `convergence_in_orders` with a `tolerance` raises the orders until the efficiencies settle.
   The detector samples sit at (k + 0.5)Λ/S, and a well is its share of |E|² on the detector plane, a midpoint rule on `detector_samples`, times the
   total transmission.
 * Every solve runs at the frequency (1 + `rayleigh_nudge`)/λ, 1e-4 by default, so that no order of the half-spaces sits on a Rayleigh point; π is
@@ -530,7 +532,7 @@ To cite a particular version of the code as well:
   title   = {{SPECTRA-RCWA}: eigendecomposition-free batched {RCWA} forward and adjoint in {PyTorch}},
   doi     = {10.5281/zenodo.24459563},
   url     = {https://github.com/hyoseokp/spectra-rcwa},
-  version = {1.3.1},
+  version = {1.4.0},
   year    = {2026}
 }
 ```

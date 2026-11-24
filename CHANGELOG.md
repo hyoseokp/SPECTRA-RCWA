@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.4.0 (2026-11-24)
+
+Added
+* `convergence_in_orders` / `problem.convergence` take a `tolerance`: the orders grow by 1.5x until the last two changes and an error estimated
+  from them are below it. The result has `converged`, `fourier_orders`, `estimated_error` and, if it stops short, the `reason` (`max_matrix_size`,
+  `max_seconds`, GPU memory, samples of an array).
+* Patterns `array` and `npy` take `pixels: true`: constant over rectangular pixels of any number, with exact Fourier coefficients, also in the gradient.
+
+Changed
+* `problem.solve` uses exact Fourier coefficients for lamellar layers (with Li's rule in a 1D grating) and, in a crossed grating, for rectangles and
+  disks, so it no longer depends on `grid` there. Sampled edges moved by up to one sample: at 512 samples a lamellar grating of fill factor 0.3 was
+  off by up to 6e-3, and these efficiencies change by that. Arrays without `pixels`, the gradient with respect to the density of the shapes, and the
+  Python classes are as before.
+* The change reported by `convergence` is over all efficiencies, an order left out of a truncation counting as 0, instead of over the orders of the first truncation.
+* The default `grid` grows with the orders above 127.
+* A rectangle or disk with orders along one axis only gets a warning.
+
 ## 1.3.1 (2026-11-24)
 
 Fixed

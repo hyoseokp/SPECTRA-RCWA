@@ -93,9 +93,12 @@ def efficiency_gradient(problem: dict, order: list[int] | None = None, side: str
     return out
 
 
-def convergence_in_orders(problem: dict, orders_list: list[list[int]] | None = None) -> dict:
-    """Solve at increasing Fourier orders (default: the problem's, 1.5x and 2x) on one grid and report how much the efficiencies change."""
-    return P.convergence(problem, orders_list)
+def convergence_in_orders(problem: dict, orders_list: list[list[int]] | None = None, tolerance: float | None = None,
+                          max_matrix_size: int = 2000, max_seconds: float = 300.0) -> dict:
+    """Solve at increasing Fourier orders on one grid and report how much the efficiencies change. With ``tolerance`` (for example 1e-3) the
+    orders grow until the last two changes and the estimated error are below it: read ``converged``, ``reason`` and ``fourier_orders``.
+    Without it: orders_list, or the problem's orders, 1.5x and 2x."""
+    return P.convergence(problem, orders_list, tolerance, max_matrix_size, max_seconds)
 
 
 TOOLS = (environment, example_problem, problem_schema, validate_problem, solve_efficiencies, efficiency_gradient, convergence_in_orders)

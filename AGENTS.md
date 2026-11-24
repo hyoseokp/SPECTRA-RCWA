@@ -58,7 +58,7 @@ pr["layers"][0]["pattern"]["fill_factor"] = 0.4
 print(P.check(pr))                                       # read the warnings
 sol = P.solve(pr)                                        # sol["results"], sol["checks"]["energy_error"], sol["arrays"]["T"]
 g = P.gradient(pr, order=(1, 0), side="T", polarisation="p", fd_check=True)
-print(P.convergence(pr))                                 # efficiencies at more orders
+print(P.convergence(pr, tolerance=1e-3))                 # more orders until the change is below it: converged, fourier_orders, estimated_error
 ```
 
 Python, the solver directly (gradients of any objective through autograd):
@@ -88,14 +88,14 @@ T[0, 21, 0].backward()                                   # +1 order, p; rho.grad
 ## Validate before quoting numbers
 
 1. Energy: for a lossless stack, sum(T) + sum(R) = 1 to about 1e-12 in double and 1e-5 in single precision (`checks.energy_error` in `solve`). A larger error means a malformed input or a solve next to a Rayleigh point.
-2. Convergence in the orders: repeat with about 1.5 and 2 times the orders (`convergence_in_orders`, `P.convergence`) on one grid and report the change between truncations; it estimates the truncation error and does not bound it. Metals and high-index contrast need many orders.
-3. Convergence in the grid: the density is sampled, and an edge moves by up to one sample. For a lamellar grating, 512 samples per period gave efficiencies within 4e-5 of a converged grid; refine `grid` / `density_shape` when the edge position matters.
+2. Convergence in the orders: `convergence_in_orders` (`P.convergence`) with `tolerance`, which raises the orders by 1.5x until the last two changes and the estimated error are below it; use the returned `fourier_orders`, and if `converged` is false report the `reason`. Without `tolerance` it solves at 1.5 and 2 times the orders and returns the changes. The estimate is not a bound: for a metal grating it was half the error. Metals and high-index contrast need many orders.
+3. Sampling: in a problem (JSON), `solve` uses exact Fourier coefficients for `lamellar` layers and, in a crossed grating, for `rectangle` and `disk`; an `array` is exact over its pixels with `pixels: true`. Other densities, every density given to the Python solver, and the shapes in `gradient` are samples: an edge moves by up to one sample, which at 512 samples per period changed efficiencies by about 5e-3 for fill factor 0.3 and is not seen by the convergence in the orders. Refine `grid` / `density_shape` there.
 4. Gradients: compare a central difference along the gradient with its norm in double precision (`fd_check=True`).
 5. A known case: the `slab` example against the Airy formula (with `rayleigh_nudge` 0), or a published grating.
 
 ## Pitfalls
 
-- A pattern grid coarser than 4 × orders + 1 is rejected; the MCP default grid is 512 along every axis with orders.
+- A pattern grid coarser than 4 × orders + 1 is rejected; the default grid of a problem is 512 (more if the orders need it) along every axis with orders.
 - Im ε < 0 is gain in this convention and is rejected; a lossy superstrate is rejected.
 - `fourier_orders=(M, 0)` with a 2D pattern ignores the pattern's y variation only if the density is constant along y; give a 1D grating `density_shape=(H, 1)`.
 - One GPU per process: the kernels belong to the current CUDA device. Select it with `CUDA_VISIBLE_DEVICES`.
