@@ -1,4 +1,4 @@
-# SPECTRA-RCWA: the fastest differentiable RCWA we have benchmarked
+# SPECTRA-RCWA: Differentiable GPU RCWA Solver for PyTorch
 
 [![PyPI](https://img.shields.io/pypi/v/spectra-rcwa.svg)](https://pypi.org/project/spectra-rcwa/)
 [![PyPI downloads](https://img.shields.io/pypi/dm/spectra-rcwa.svg)](https://pypi.org/project/spectra-rcwa/)
@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/hyoseokp/spectra-rcwa/blob/main/LICENSE)
 [![arXiv](https://img.shields.io/badge/arXiv-2611.30305-b31b1b.svg)](https://arxiv.org/abs/2611.30305)
 
-**Eigendecomposition-free, GPU-batched RCWA with adjoint gradients: 144 solves with gradients in 0.28 s on one RTX 5090, 37 to 880 times faster than the other GPU RCWA codes we tested, and about 2,400x faster than S4 on 12 CPU cores.**
+**Eigendecomposition-free, GPU-batched RCWA with adjoint gradients: 144 solves with gradients in 0.28 s on one RTX 5090, 37 to 880 times faster than the other GPU RCWA codes we tested.**
 
 ![Figure 1](https://raw.githubusercontent.com/hyoseokp/spectra-rcwa/main/docs/figures/fig1_concept.png)
 
