@@ -74,6 +74,47 @@ def test_stored_block_with_a_gradient():
     assert rel(g1, g0) < 1e-9
 
 
+MIXED = DEFAULT.replace(block_from_steps=2)
+THIN, THICK = 0.05, 0.7                                                # one step of the recursion, and a block
+
+
+@pytest.mark.parametrize("kinds", ["RBB", "BRB", "BBR", "BBB", "RRB", "RBR", "BSB", "SBB", "BBS", "RSR", "SRB", "BUB", "UBB", "BBU", "RUR", "URU", "UUB", "BUU", "RUUR"])
+def test_every_neighbour_of_a_layer(kinds):
+    """R recursion, B block, S stored block, U uniform layer, top first: the gradient on top and below against autograd, and the fields against the
+    recursion and (S, U) the sampled layer."""
+    fwd, plain, reference = (_make(cfg, torch.complex128, cls=MultiLayerForward, thicknesses_um=(0.3, 0.4))
+                             for cfg in (MIXED, MIXED.replace(handwritten_backward=False), RECURSION))
+    thickness = dict(R=THIN, B=THICK, S=THICK, U=0.3)
+    flat = torch.full_like(TWO[0], 0.37)
+    value_of = lambda e, wl: complex(e(wl)) if callable(e) else complex(e)
+    eps = lambda wl: 0.37 * value_of(fwd.stack.eps_design, wl) + 0.63 * value_of(fwd.stack.eps_fill, wl)
+    grads, fields = [], []
+    for f in (fwd, plain, reference):
+        free, layers = [], []
+        for i, k in enumerate(kinds):
+            if k == "U":
+                layers.append((flat, thickness[k]) if f is reference else f.uniform_block(eps, thickness[k]))
+            elif k == "S" and f is not reference:
+                layers.append(f.layer_block(TWO[1].detach(), thickness[k]))
+            else:
+                x = (TWO[1] if k == "S" else TWO[i % 2]).detach().clone().requires_grad_(k != "S")
+                free += [x] if k != "S" else []
+                layers.append((x, thickness[k]))
+        below, top = f.stack_field(layers, return_top=True)
+        fields.append((below.detach(), top.detach()))
+        value = (below.abs() ** 2).sum() + 0.3 * (top.real ** 2).sum()
+        grads.append(torch.stack(torch.autograd.grad(value, free)))
+        with torch.no_grad():                                          # without the gradient less is kept
+            again = f.stack_field([tuple(x) for x in layers], return_top=True)
+        assert rel(again[0], below) < 1e-13 and rel(again[1], top) < 1e-13
+        g_below = torch.autograd.grad((f.stack_field(layers).abs() ** 2).sum(), free)
+        g_top = torch.autograd.grad(0.3 * (f.stack_field(layers, return_top=True)[1].real ** 2).sum(), free)
+        assert rel(torch.stack(g_below) + torch.stack(g_top), grads[-1]) < 1e-11
+    assert rel(grads[0], grads[1]) < 1e-10 and rel(grads[0], grads[2]) < 1e-8
+    for a in fields[:2]:
+        assert rel(a[0], fields[2][0]) < 1e-9 and rel(a[1], fields[2][1]) < 1e-9
+
+
 def test_layer_ops_against_dense():
     fwd = _make(DEFAULT, torch.complex128)
     e_all, einv_all = fwd._econv(tiny_density()[None])

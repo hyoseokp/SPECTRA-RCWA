@@ -133,7 +133,8 @@ def _dense(y):
 
 @dataclass
 class _Recursion:
-    """A layer solved by the admittance recursion, top to bottom: ys[k] above step k, ys[k + 1] below it; e below = ds[k] e above."""
+    """A layer solved by the admittance recursion, top to bottom: ys[k] above step k, ys[k + 1] below it; e below = ds[k] e above.  On top of the stack
+    the first step has no D: the field below it is solved for, with ``f`` the field above it per field below, and ys[0] is None."""
 
     ops: LayerOps
     rows: torch.Tensor
@@ -144,20 +145,22 @@ class _Recursion:
     qgp: torch.Tensor
     ys: list = field(default_factory=list)
     ds: list = field(default_factory=list)
+    f: torch.Tensor | None = None
 
 
 @dataclass
 class _Block:
-    """A layer through its S-matrix; ``tree`` = [(t, r, x)] of its halves, thinnest first, empty for a stored block.  At the top of the stack ``x_top`` instead of ``inv_top``."""
+    """A layer through its S-matrix; ``tree`` = [(t, r, x)] of its halves, thinnest first, empty for a stored block.  At the top of the stack ``x_top`` instead of ``inv_top``.
+    ``linked``: the layer above is a block too, so the waves go on in the same basis and neither ``inv_top`` nor an admittance is needed between them."""
 
-    t: torch.Tensor
-    r: torch.Tensor
+    t: object                                                          # dense, or BDD where the layer (and what is below it) is uniform
+    r: object
     y0: BDD
     rho: object
-    xb: torch.Tensor
-    tx: torch.Tensor
-    rho_top: torch.Tensor
-    inv_top: torch.Tensor | None = None
+    xb: object
+    tx: object
+    rho_top: object
+    inv_top: object = None
     x_top: object = None
     rho_i: BDD | None = None
     a_top: torch.Tensor | None = None
@@ -167,6 +170,7 @@ class _Block:
     h: float = 0.0
     x: float = 0.0
     tree: list = field(default_factory=list)
+    linked: bool = False
 
     def below(self, a_b):
         """Field below the block from the wave going down there."""
@@ -175,18 +179,46 @@ class _Block:
 
 @dataclass
 class _State:
-    """What the backward pass needs: the layers top to bottom; for a top of the stack that is not a block, the inverse of V_i + Y and V_i."""
+    """What the backward pass needs: the layers top to bottom; for a top of the stack that is not a block, the factors of V_i F + G, V_i,
+    and E below the first step and H above it."""
 
     segs: list
     top_inv: object
     vi: BDD
     top: torch.Tensor
+    first: torch.Tensor | None
+    top_h: torch.Tensor | None
 
 
 def _shift(x):
     """I + x for a fresh x."""
     x.diagonal(dim1=-2, dim2=-1).add_(1.0)
     return x
+
+
+def _plus(y, s=1.0):
+    """I + s y."""
+    if isinstance(y, BDD):
+        one = torch.ones_like(y.a)
+        return BDD(one + s * y.a, s * y.b, s * y.c, one + s * y.d)
+    return _shift(s * y)
+
+
+def _prod(x, y):
+    if isinstance(x, BDD):
+        return x.matmul_bdd(y) if isinstance(y, BDD) else bdd_left(x, y)
+    return bdd_right(y, x) if isinstance(y, BDD) else matmul(x, y)
+
+
+def _one_minus(x, y):
+    """I - x y."""
+    if isinstance(x, BDD):
+        return _plus(x.matmul_bdd(y), -1.0) if isinstance(y, BDD) else bdd_left(x, y, -1, 1)
+    return bdd_right(y, x, -1, 1) if isinstance(y, BDD) else _shift(-matmul(x, y))
+
+
+def _inverse(m, how):
+    return m.inverse() if isinstance(m, BDD) else matfun.inverse(m, how)
 
 
 class _Factored:
@@ -213,26 +245,35 @@ class _Factored:
     lu = None
 
 
-def _through_block(block, y, y0, cfg, vi=None):
-    """(admittance on top, state of the block) for the admittance ``y`` below it.  With ``vi`` the block is the top of the stack and only the
+def _through_block(block, y, y0, cfg, vi=None, rho=None, linked=False, keep=True):
+    """(admittance on top, state of the block) for the admittance ``y`` below it, or the reflection ``rho`` of a block below it.  ``linked``: a block
+    lies on top, and the reflection is returned instead of the admittance.  With ``vi`` the block is the top of the stack and only the
     field for the two incident waves is needed: a = rho_i b + tau J above it, one factorisation of I - rho_i rho_top and no admittance."""
     t, r = block
-    if isinstance(y, BDD):
+    if rho is None and isinstance(y, BDD):
         rho = (y0 + y).inverse().matmul_bdd(y0 - y)                    # b = rho a below the block
-        tx_in, rho_tx = bdd_right(rho, r, -1, 1), lambda x: bdd_left(rho, x)
-    else:
+    elif rho is None:
         rho = matmul(matfun.inverse(y0.dense() + y, cfg.top_inverse), y0.dense() - y)
-        tx_in, rho_tx = _shift(-matmul(r, rho)), lambda x: matmul(rho, x)
-    xb = matfun.inverse(tx_in, cfg.layer_inverse)
-    tx = matmul(xb, t)                                                   # a below = tx a above
-    rho_top = baddbmm(r, t, rho_tx(tx))
-    seg = _Block(t, r, y0, rho, xb, tx, rho_top)
+    xb = _inverse(_one_minus(r, rho), cfg.layer_inverse)
+    tx = _prod(xb, t)                                                    # a below = tx a above
+    if isinstance(r, BDD):                                             # a uniform layer, and dense only if something below is
+        rho_top = _prod(t, _prod(rho, tx))
+        rho_top = r + rho_top if isinstance(rho_top, BDD) else r.dense() + rho_top
+    else:
+        rho_top = baddbmm(r, t, _prod(rho, tx))
+    seg = _Block(t, r, y0, rho, xb, tx, rho_top, linked=linked)
+    if not keep:
+        seg.t = seg.r = seg.xb = None                                    # only the gradient needs them
     if vi is not None:
         seg.rho_i = (y0 + vi).inverse().matmul_bdd(y0 - vi)
-        seg.x_top = _Factored(bdd_left(seg.rho_i, rho_top, -1, 1), cfg)
+        seg.x_top = _Factored(_dense(_one_minus(seg.rho_i, rho_top)), cfg)
         return None, seg
-    seg.inv_top = matfun.inverse(_shift(rho_top.clone()), cfg.layer_inverse)
-    return bdd_left(y0, matmul(_shift(-rho_top), seg.inv_top)), seg
+    if not keep:
+        seg.rho_top = None
+    if linked:
+        return rho_top, seg
+    seg.inv_top = _inverse(_plus(rho_top), cfg.layer_inverse)
+    return _prod(y0, _prod(_plus(rho_top, -1.0), seg.inv_top)), seg
 
 
 def solve_stack(fwd, e_all, einv_all, layers, keep=False):
@@ -241,17 +282,21 @@ def solve_stack(fwd, e_all, einv_all, layers, keep=False):
     g0 = layers[0][0]
     phase = fwd._max_phase(g0)
     turn = max(phase, fwd._index_phase(g0))                            # the fields turn with w sqrt(|eps|) as well: the adjoint integral follows the larger
-    y, segs = g0.vo, []
+    source = 2.0 * g0.vi.left(g0.e_in)
+    y, rho, segs, top_inv, top, top_h, first = g0.vo, None, [], None, None, None, None
+    cuts = [None if isinstance(layer, tuple) else max(phase, turn / 2.0) * layer for _, layer in layers]      # w d max(k), and no step with w h |eps|^(1/2) above twice max_step_phase
+    steps_of = [None if cut is None else max(1, int(math.ceil(cut / cfg.max_step_phase))) for cut in cuts]
+    block = [s is None or s >= cfg.block_from_steps for s in steps_of]
     for i, (g, layer) in reversed(list(enumerate(layers))):
-        vi = g0.vi if i == 0 else None
+        through = dict(vi=g0.vi if i == 0 else None, rho=rho, linked=i > 0 and block[i - 1], keep=keep or torch.is_grad_enabled())
         if isinstance(layer, tuple):
-            y, seg = _through_block(layer, y, blocks.reference_admittance(g), cfg, vi)
+            out, seg = _through_block(layer, y, blocks.reference_admittance(g), cfg, **through)
+            y, rho = (None, out) if seg.linked else (out, None)
             segs.append(seg)
             continue
         ops = LayerOps(e_all[g.lam_index], einv_all[g.lam_index], g.kx, g.ky)
-        cut = max(phase, turn / 2.0) * layer                          # w d max(k), and no step with w h |eps|^(1/2) above twice max_step_phase
-        steps = max(1, int(math.ceil(cut / cfg.max_step_phase)))
-        if steps >= cfg.block_from_steps:
+        cut, steps = cuts[i], steps_of[i]
+        if block[i]:
             doublings = blocks.doublings_for(cut, cfg)
             y0 = blocks.reference_admittance(g)
             h = layer / 2 ** doublings
@@ -260,44 +305,52 @@ def solve_stack(fwd, e_all, einv_all, layers, keep=False):
             t, r = blocks.thin_block(ops, e, sc, gc, wh, y0, cfg)
             del e, sc, gc
             t, r, tree = blocks.double_block(t, r, doublings, cfg, keep)
-            y, seg = _through_block((t, r), y, y0, cfg, vi)
+            out, seg = _through_block((t, r), y, y0, cfg, **through)
+            y, rho = (None, out) if seg.linked else (out, None)
             seg.ops, seg.rows, seg.omega, seg.h, seg.x, seg.tree = ops, g.lam_index, g.omega.real, h, turn * h / 2.0, tree
             segs.append(seg)
             continue
         h = layer / steps
-        y = _dense(y)
         wh = g.omega[:, None, None] * h
         e, sc, gc = matfun.cos_sinc(ops.pq(), wh, cfg)
         s = 1j * wh * sc                                              # i S, with S = w h sc; G = (w h)^2 gc
         c, sp, qs, qgp = _shift(e), ops.p_right(s), ops.q_left(s), ops.q_left(ops.p_right((wh * wh) * gc))
         del sc, gc, s
         seg = _Recursion(ops, g.lam_index, g.omega.real, h, turn * h / 2.0, sp, qgp, ys=[y])
-        for _ in range(steps):
-            d = matfun.inverse(lincomb([c, matmul(sp, y)], [1.0, -1.0]), cfg.step_inverse)
-            y = matmul(lincomb([y, matmul(qgp, y), qs], [1.0, 1.0, -1.0]), d)
+        for k in range(steps):
+            spy, qgpy = (bdd_right(y, sp), bdd_right(y, qgp)) if isinstance(y, BDD) else (matmul(sp, y), matmul(qgp, y))
+            f, gm = lincomb([c, spy], [1.0, -1.0]), lincomb([_dense(y), qgpy, qs], [1.0, 1.0, -1.0])      # e above = f e below, h above = gm e below
+            if i == 0 and k == steps - 1:                              # top of the stack: V_i e + h = 2 V_i e_in for two columns, no admittance
+                top_inv = _Factored(bdd_left(g0.vi, f) + gm, cfg)
+                first = top_inv.solve(source)
+                top, top_h = f @ first, gm @ first
+                if keep:
+                    seg.f = f
+                    seg.ys.insert(0, None)
+                break
+            d = matfun.inverse(f, cfg.step_inverse)
+            y = matmul(gm, d)
             if keep:
                 seg.ys.insert(0, y)
             seg.ds.insert(0, d)
         segs.append(seg)
     segs.reverse()
-    source = 2.0 * g0.vi.left(g0.e_in)
-    if y is None:                                                      # a block on top
+    if block[0]:
         seg = segs[0]
         seg.a_top = seg.x_top.solve((seg.y0 + g0.vi).inverse().left(source))
-        top = seg.a_top + seg.rho_top @ seg.a_top
-        out, top_inv = seg.below(seg.tx @ seg.a_top), None
-        rest = segs[1:]
-    else:
-        top_inv = _Factored(g0.vi.dense() + _dense(y), cfg)
-        top = top_inv.solve(source)
-        out, rest = top, segs
-    for seg in rest:
+        top = seg.a_top + _mul(seg.rho_top, seg.a_top)
+    out = first if top_inv is not None else top
+    wave = None                                                        # the wave going down below a block
+    for j, seg in enumerate(segs):
         if isinstance(seg, _Block):
-            out = seg.below(seg.tx @ (seg.inv_top @ out))
+            above = seg.a_top if seg.x_top is not None else wave if seg.linked else _mul(seg.inv_top, out)
+            wave = _mul(seg.tx, above)
+            if j + 1 == len(segs) or not (isinstance(segs[j + 1], _Block) and segs[j + 1].linked):
+                out = seg.below(wave)
         else:
             for d in seg.ds:
                 out = d @ out
-    return out, top, _State(segs, top_inv, g0.vi, top.detach())       # detached: the state must not hold the output of its own Function
+    return out, top, _State(segs, top_inv, g0.vi, top.detach(), first, top_h)       # detached: the state must not hold the output of its own Function
 
 
 _GAUSS: dict = {}
@@ -444,47 +497,62 @@ def adjoint_gradient(state, g_out, g_top, e_all, einv_all, cfg):
     # forward field on the ends of the layers, and c = a + Y^H b from the bottom up
     e = state.top
     ends = []
+    wave = None
     for seg in segs:
         if isinstance(seg, _Block):
-            a_t = seg.a_top if seg.x_top is not None else seg.inv_top @ e
+            a_t = seg.a_top if seg.x_top is not None else wave if seg.linked else _mul(seg.inv_top, e)
             ends.append(a_t)
-            e = seg.below(seg.tx @ a_t)
+            wave = _mul(seg.tx, a_t)
+            e = seg.below(wave)
         else:
             pl = [e]
+            if seg.f is not None:
+                e = state.first
+                pl.append(e)
             for d in seg.ds:
                 e = d @ e
                 pl.append(e)
             ends.append(pl)
     c = g_out if g_out is not None else torch.zeros_like(e)
-    cs = []
+    cs, hat = [], None                                                 # hat: (I + rho)^H c below a block, handed over by the linked block below it
     for seg in reversed(segs):
         if isinstance(seg, _Block):
-            cs.append(c)
+            chat = hat if hat is not None else c + _mulh(seg.rho, c)
+            hat = None
+            cs.append(chat)
             if seg.x_top is None:
-                c = seg.inv_top.mH @ (seg.tx.mH @ (c + _mulh(seg.rho, c)))
+                if seg.linked:
+                    hat = _mulh(seg.tx, chat)
+                else:
+                    c = _mulh(seg.inv_top, _mulh(seg.tx, chat))
         else:
             cl = [c]
             for d in reversed(seg.ds):
                 c = d.mH @ c
                 cl.append(c)
+            if seg.f is not None:
+                cl.append(None)
             cs.append(cl[::-1])
     cs.reverse()
-    if state.top_inv is not None:
-        b = state.top_inv.solve_h(c + g_top if g_top is not None else c)
+    if state.top_inv is not None:                                      # (V_i F + G)^H b = F^H (c + g_top), and F^H c is the c below the first step
+        b = state.top_inv.solve_h(c + segs[0].f.mH @ g_top if g_top is not None else c)
         a = state.vi.mh().left(b)
         if g_top is not None:
             a = a - g_top
+    p_b = q_b = None
     # the adjoint field from the top down, the integral over each layer
     for seg, end, cb in zip(segs, ends, cs):
         if isinstance(seg, _Block):
             a_t = end
             y0 = seg.y0
-            chat = cb + _mulh(seg.rho, cb)                              # (I + rho)^H c below
-            if seg.x_top is not None:
-                ct = seg.tx.mH @ chat
+            chat = cb                                                   # (I + rho)^H c below
+            if seg.linked:
+                p_t, q_t = p_b, q_b
+            elif seg.x_top is not None:
+                ct = _mulh(seg.tx, chat)
                 if g_top is not None:
                     gi = g_top + seg.rho_i.mh().left(g_top)
-                    p_t = seg.x_top.solve_h(ct + seg.rho_top.mH @ gi)
+                    p_t = seg.x_top.solve_h(ct + _mulh(seg.rho_top, gi))
                     q_t = -seg.rho_i.mh().left(p_t) - gi
                 else:
                     p_t = seg.x_top.solve_h(ct)
@@ -492,11 +560,11 @@ def adjoint_gradient(state, g_out, g_top, e_all, einv_all, cfg):
             else:
                 y0h = y0.mh()
                 p_t, q_t = a + y0h.left(b), a - y0h.left(b)
-            b_t = seg.rho_top @ a_t
-            a_b = seg.tx @ a_t
+            b_t = _mul(seg.rho_top, a_t)
+            a_b = _mul(seg.tx, a_t)
             b_b = _mul(seg.rho, a_b)
-            x = seg.t.mH @ q_t - seg.r.mH @ chat
-            q_b = x + seg.r.mH @ (seg.xb.mH @ _mulh(seg.rho, x))        # (I - rho R)^-1 = I + rho (I - R rho)^-1 R
+            x = _mulh(seg.t, q_t) - _mulh(seg.r, chat)
+            q_b = x + _mulh(seg.r, _mulh(seg.xb, _mulh(seg.rho, x)))        # (I - rho R)^-1 = I + rho (I - R rho)^-1 R
             p_b = chat - _mulh(seg.rho, q_b)
             if seg.ops is not None:
                 _layer_gradient(seg, *_block_planes(seg, a_t, b_t, a_b, b_b, p_t, q_t, p_b, q_b), g_e, g_einv, cfg)
@@ -508,7 +576,7 @@ def adjoint_gradient(state, g_out, g_top, e_all, einv_all, cfg):
                 if k > 0:
                     b = b + seg.qgp.mH @ b - seg.sp.mH @ a              # across a step: the row of M^H
                     a = c_k - _mulh(y, b)
-                h_pl.append(_mul(y, e_pl[k]))
+                h_pl.append(state.top_h if y is None else _mul(y, e_pl[k]))
                 a_pl.append(a)
                 b_pl.append(b)
             _layer_gradient(seg, e_pl, h_pl, a_pl, b_pl, g_e, g_einv, cfg)
@@ -520,6 +588,7 @@ class StackSolve(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, e_all, einv_all, fwd, layers, keep):
+        ctx.set_materialize_grads(False)
         out, top, state = solve_stack(fwd, e_all, einv_all, layers, keep)
         if keep:
             ctx.state, ctx.cfg = state, fwd.config

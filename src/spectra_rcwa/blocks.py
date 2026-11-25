@@ -65,6 +65,33 @@ def layer_block(ops, omega, thickness: float, y0: BDD, cfg: SolverConfig, doubli
     return double_block(*thin_block(ops, e, sc, gc, wh, y0, cfg), doublings, cfg)[:2]
 
 
+def uniform_block(eps, g: SolveGeometry, thickness: float, cdt):
+    """(T, R), both block diagonal, of a uniform layer of permittivity ``eps`` [B] in the basis of :func:`reference_admittance`: the same thin step and
+    doublings, on the 2 x 2 blocks of the single orders, which a uniform layer does not couple."""
+    cd = torch.complex128
+    kx, ky, w, e = g.kx.to(cd), g.ky.to(cd), g.omega.to(cd)[:, None], eps.to(cd)[:, None]
+    y0 = homogeneous_v(torch.as_tensor(EPS_REFERENCE, dtype=cd, device=kx.device), kx, ky)
+    z0 = y0.inverse()
+    lam = e - kx * kx - ky * ky                                        # A = lam I
+    root = torch.sqrt(lam)
+    doublings = max(1, int(math.ceil(math.log2(max(float((w * root).abs().max()) * thickness, 1e-30)))))
+    wh = w * (thickness / 2 ** doublings)
+    sinc = lambda x: torch.where(x.abs() < 1e-6, 1.0 - x * x / 6.0, torch.sin(x) / torch.where(x.abs() < 1e-6, torch.ones_like(x), x))
+    x = wh * root
+    cos1, s = -0.5 * x * x * sinc(0.5 * x) ** 2, 1j * wh * sinc(x)
+    one = torch.ones_like(kx)
+    p = BDD(kx * ky / e, one - kx * kx / e, ky * ky / e - one, -kx * ky / e)
+    q = BDD(-kx * ky, kx * kx - e, e - ky * ky, kx * ky)
+    ss, qq = p.scale(s).matmul_bdd(y0), z0.matmul_bdd(q.scale(s))
+    eye = BDD(one, torch.zeros_like(one), torch.zeros_like(one), one)
+    t = (eye.scale(1.0 + cos1) - (ss + qq).scale(0.5)).inverse()
+    r = (qq - ss).scale(0.5).matmul_bdd(t)
+    for _ in range(doublings):
+        tx = t.matmul_bdd((eye - r.matmul_bdd(r)).inverse())
+        t, r = tx.matmul_bdd(t), r + tx.matmul_bdd(r.matmul_bdd(t))
+    return tuple(BDD(*(x.to(cdt) for x in (m.a, m.b, m.c, m.d))) for m in (t, r))
+
+
 def doublings_for(phase: float, cfg: SolverConfig) -> int:
     """Doublings so that a thin step has w h max(k) at most cfg.block_step_phase; ``phase`` = w d max(k)."""
     return max(1, int(math.ceil(math.log2(max(phase / cfg.block_step_phase, 1.0)))))

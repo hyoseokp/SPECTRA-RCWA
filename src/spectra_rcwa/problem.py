@@ -425,13 +425,9 @@ def _wave_vector(problem, wl_nm, inc, m, n):
 
 
 def _rayleigh_gap(problem, wl_nm, inc):
-    gap = math.inf
-    for medium in ("eps_in", "eps_out"):
-        nr = permittivity(problem.get(medium, 1.0)).real ** 0.5
-        for m, n in _order_list(problem):
-            kx, ky = _wave_vector(problem, wl_nm, inc, m, n)
-            gap = min(gap, abs(math.hypot(kx, ky) - nr) / nr)
-    return gap
+    m, n = np.array(_order_list(problem)).T
+    k = np.hypot(*_wave_vector(problem, wl_nm, inc, m, n))
+    return min(float((np.abs(k - nr) / nr).min()) for nr in (permittivity(problem.get(medium, 1.0)).real ** 0.5 for medium in ("eps_in", "eps_out")))
 
 
 def _forward(problem, eps_design=None, eps_fill=None, orders=None):
@@ -452,6 +448,10 @@ def _forward(problem, eps_design=None, eps_fill=None, orders=None):
                               device=device, dtype=dtype, config=DEFAULT.replace(factorization=problem.get("factorization", "auto")))
 
 
+def _uniform(layer) -> bool:
+    return layer["pattern"].get("type") == "uniform" and float(layer["thickness_um"]) > 0
+
+
 def _layers(problem, fwd, densities, exact=True):
     """stack_field layers: (density or permittivity matrices, thickness) for layers of the problem's materials, stored blocks for the others.
     Without ``exact`` the shapes are sampled, so that the gradient with respect to the samples exists; pixel arrays never are."""
@@ -463,6 +463,10 @@ def _layers(problem, fwd, densities, exact=True):
         return rho
 
     for layer, rho in zip(problem["layers"], densities):
+        if exact and _uniform(layer):
+            lo, hi = (permittivity(layer.get(k, problem.get(k, 1.0))) for k in ("eps_fill", "eps_design"))
+            out.append(fwd.uniform_block(lo + float(layer["pattern"].get("value", 1.0)) * (hi - lo), float(layer["thickness_um"])))
+            continue
         if "eps_design" in layer or "eps_fill" in layer:
             other = _forward(problem, layer.get("eps_design", problem["eps_design"]), layer.get("eps_fill", problem.get("eps_fill", 1.0)),
                              orders=fwd.orders)

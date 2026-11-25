@@ -194,6 +194,11 @@ class ColorRouterForward:
         if bool((self.eps_bg.imag < 0).any()) or bool((self.eps_design.imag < 0).any()):
             raise ValueError("Im(eps) < 0 is gain in the exp(-i w t) convention used here; write an absorbing index as n + ik")
 
+        pairs = list(zip(self.eps_bg.tolist(), self.eps_design.tolist()))            # wavelengths with the same permittivities share their matrices
+        first = sorted({p: i for i, p in reversed(list(enumerate(pairs)))}.values())
+        self.eps_first = torch.tensor(first, device=self.device)
+        self.eps_of = torch.tensor([first.index(pairs.index(p)) for p in pairs], device=self.device)
+
         # Toeplitz gather indices of the permittivity convolution matrix
         gx, gy = torch.tensor(self.order_list, device=self.device).unbind(1)
         self.conv_ix = (gx[:, None] - gx[None, :]) % self.shape[0]
@@ -240,11 +245,19 @@ class ColorRouterForward:
 
     # ------------------------------------------------------------------ physics
     def _econv(self, densities: torch.Tensor):
+        """:meth:`_econv_of` the distinct permittivities, row d * L + lambda."""
+        e, einv = self._econv_of(densities, self.eps_bg[self.eps_first], self.eps_design[self.eps_first])
+        n = len(self.eps_first)
+        if n == len(self.eps_of):
+            return e, einv
+        rows = (torch.arange(densities.shape[0], device=self.device)[:, None] * n + self.eps_of[None, :]).reshape(-1)
+        return e[rows], einv[rows]
+
+    def _econv_of(self, densities: torch.Tensor, eps_bg: torch.Tensor, eps_design: torch.Tensor):
         """Permittivity matrices per (density, wavelength), row d * L + lambda: [E_xx, E_yy] [rows, 2, N, N], or [E_xx, E_yy, E_xy = E_yx] with the
         rule "normal", and E^-1 = [[eps]]^-1 (for E_zz).  The rule is SolverConfig.factorization (see :class:`spectra_rcwa.config.SolverConfig`)."""
         rho = densities.to(self.cdt)
-        eps_map = (self.eps_bg[None, :, None, None]
-                   + rho[:, None] * (self.eps_design - self.eps_bg)[None, :, None, None])
+        eps_map = eps_bg[None, :, None, None] + rho[:, None] * (eps_design - eps_bg)[None, :, None, None]
         spec = (torch.fft.fft2(eps_map) / (self.shape[0] * self.shape[1])).reshape(-1, *self.shape)
         e = _take(spec, self.conv_ix, self.conv_iy)
         rule = self.config.factorization
@@ -253,7 +266,7 @@ class ColorRouterForward:
         if rule == "normal" and min(self.orders) > 0:
             inv = torch.fft.fft2(1.0 / eps_map) / (self.shape[0] * self.shape[1])
             inv = lapack.inv(_take(inv.reshape(-1, *self.shape), self.conv_ix, self.conv_iy))
-            return in_plane(e, inv, self._tensor(densities).repeat_interleave(len(self.wavelengths_nm), 0)), lapack.inv(e)
+            return in_plane(e, inv, self._tensor(densities).repeat_interleave(len(eps_bg), 0)), lapack.inv(e)
         sx, sy = self.shape
         inv_map = (1.0 / eps_map).reshape(-1, sx, sy)
         tx = _take(torch.fft.fft(inv_map, dim=1) / sx, self.li_mx)                   # [[1/eps]]_x at each y: [rows, Mx, Mx, Sy]
@@ -343,12 +356,18 @@ class ColorRouterForward:
         e_all, einv_all = self._rows([density])
         return self._layer_block(e_all, einv_all, self._solves(0, solves), float(thickness_um))
 
+    def uniform_block(self, eps: Permittivity, thickness_um: float, solves=None):
+        """Stored block of a uniform layer of any permittivity (a number, or a callable of the wavelength in um), in closed form per order: :class:`BDD` (T, R)."""
+        g = self._solves(0, solves)
+        values = torch.tensor([_eps(eps, w / 1000) for w in self.wavelengths_nm], dtype=torch.complex128, device=self.device)
+        return blocks.uniform_block(values[g.lam_index], g, float(thickness_um), self.cdt)
+
     def stack_field(self, layers, solves=None, return_top: bool = False):
         """Field below a stack for both polarisations, [b, 2N, 2], with return_top also (below, top), between the superstrate and
         substrate of ``self.stack``.  ``layers``, top first: (density [H, W], thickness in um) or a stored layer_block.
         In place of a density, the permittivity matrices of :meth:`_rows`."""
         self._prepare()
-        stored = [torch.is_tensor(x[1]) and x[1].ndim == 3 for x in layers]          # a stored block is (T, R); anything else is (density, thickness)
+        stored = [isinstance(x[1], BDD) or torch.is_tensor(x[1]) and x[1].ndim == 3 for x in layers]          # a stored block is (T, R); anything else is (density, thickness)
         densities = [x[0] for x, s in zip(layers, stored) if not s]
         e_all, einv_all = self._rows(densities) if densities else (None, None)
         items, slot = [], 0
@@ -383,7 +402,7 @@ class ColorRouterForward:
         thickness or a stored layer_block)], top first, the geometries differing in the row of the permittivity matrices only (see the top
         of this module).  On a stored block that needs a gradient, autograd goes through the whole stack."""
         stored = [x for _, layer in layers if isinstance(layer, tuple) for x in layer]
-        if self._hand_adjoint() and e_all is not None and not any(x.requires_grad for x in stored):
+        if self._hand_adjoint() and e_all is not None and not any(torch.is_tensor(x) and x.requires_grad for x in stored):
             keep = torch.is_grad_enabled() and (e_all.requires_grad or einv_all.requires_grad)
             out, top = adjoint.StackSolve.apply(e_all, einv_all, self, layers, keep)
         else:

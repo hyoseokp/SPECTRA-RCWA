@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.6.2 (2026-11-25)
+
+Changed (times on an RTX 5090 in complex64, against 1.6.1 on the same card; the results agree to rounding)
+* Thick layers next to each other hand their reflection matrix over directly, without an admittance and an inverse in between: 4 layers of 0.8 µm take 49 ms
+  instead of 63 for value and gradient (9 solves at 338 x 338).
+* The topmost step of a thin layer is solved for its two right-hand sides only, and the first step uses that the admittance of the substrate is block diagonal:
+  a 0.25 µm layer takes 12.5 ms instead of 15, a 0.05 µm layer 8.8 ms instead of 11.6, at a cutoff 11.8 ms instead of 14.
+* `solve` of a JSON problem treats uniform layers in closed form per order (`ColorRouterForward.uniform_block`), and layers below them that are uniform too cost no
+  dense matrix: a grating on a 2 µm spacer takes 29 ms instead of 56 at 578 x 578, one between two films 47 ms instead of 74.
+* The check before a solve no longer loops over the orders in Python, wavelengths with the same permittivities share their permittivity matrices, and a solve without a
+  gradient keeps fewer matrices.
+
 ## 1.6.1 (2026-11-25)
 
 Changed

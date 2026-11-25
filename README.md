@@ -390,7 +390,7 @@ To cite a particular version of the code as well:
   title   = {{SPECTRA-RCWA}: eigendecomposition-free batched {RCWA} forward and adjoint in {PyTorch}},
   doi     = {10.5281/zenodo.24459563},
   url     = {https://github.com/hyoseokp/spectra-rcwa},
-  version = {1.6.1},
+  version = {1.6.2},
   year    = {2026}
 }
 ```

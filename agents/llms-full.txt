@@ -105,8 +105,8 @@ T[0, 21, 0].backward()                                   # +1 order, p; rho.grad
 
 - **Efficiencies of a single patterned layer**: `fwd.efficiencies([(density, thickness_um)])`. `stack.thickness_um` is used only by `response`.
 - **Several wavelengths and directions**: pass them all to one `ColorRouterForward` (`wavelengths_nm=[...]`, `rays=[Ray(...), ...]`); they are solved as one batch. `Ray.weight` matters only for `response`. A `Ray` angle is given in a reference medium of index `reference_index` (default 1) and refracted into the superstrate, so set `reference_index` to the superstrate index to give the angle inside it.
-- **Multilayer**: `fwd.efficiencies([(rho_a, d_a), (rho_b, d_b), ...])`, top first; all patterned layers share `eps_design` and `eps_fill`. A uniform layer is density 0 or 1. A layer of other materials: build a second `ColorRouterForward` with the same lattice, orders, rays and wavelengths and other `eps_design` / `eps_fill`, take `block = other.layer_block(rho, d)` under `torch.no_grad()` and put `block` in the list. A stored block can be reused as long as that layer does not change. `MultiLayerForward` gives the detector quadrant powers of a stack.
-- **Thick layers**: nothing to set. A layer is cut in steps with ωh max(k) ≤ 4.5, and from 7 steps on goes through its S-matrix by doubling.
+- **Multilayer**: `fwd.efficiencies([(rho_a, d_a), (rho_b, d_b), ...])`, top first; all patterned layers share `eps_design` and `eps_fill`. A uniform layer of any permittivity is `fwd.uniform_block(eps, d)` in the list (closed form per order, no gradient with respect to it). A patterned layer of other materials: build a second `ColorRouterForward` with the same lattice, orders, rays and wavelengths and other `eps_design` / `eps_fill`, take `block = other.layer_block(rho, d)` under `torch.no_grad()` and put `block` in the list. A stored block can be reused as long as that layer does not change. `MultiLayerForward` gives the detector quadrant powers of a stack.
+- **Thick layers**: nothing to set. A layer is cut in steps with ωh max(k) ≤ 4.5, and from 5 steps on goes through its S-matrix by doubling.
 - **Gradients**: make the density `requires_grad_()`, compute any scalar from T and R (or Tabs from `response`), call `backward()`. The gradient comes from one adjoint field, not from a graph of the solve. `value_and_grad(fwd, density, objective)` does this for `response`. In a loop, drop the outputs of the previous evaluation before the next forward pass, or two sets of factors are held in memory.
 - **Precision**: `dtype=torch.complex128` for reference values and for finite-difference checks (energy error about 1e-12); `torch.complex64` on a GPU for speed (efficiency and gradient errors about 1e-6 to 1e-5). Keep `torch.backends.cuda.matmul.allow_tf32` off (torch's default): TF32 costs up to 8e-2 in the gradient.
 - **Size**: the layer matrices are 2(2M + 1)(2N + 1) square. On a CPU, sizes up to a few hundred take milliseconds to seconds per solve; above about 1000, use a GPU. `chunk=` bounds the solves per batch when GPU memory is short.
@@ -125,7 +125,7 @@ T[0, 21, 0].backward()                                   # +1 order, p; rho.grad
 - Im ε < 0 is gain in this convention and is rejected; a lossy superstrate is rejected.
 - `fourier_orders=(M, 0)` with a 2D pattern ignores the pattern's y variation only if the density is constant along y; give a 1D grating `density_shape=(H, 1)`.
 - One GPU per process: the kernels belong to the current CUDA device. Select it with `CUDA_VISIBLE_DEVICES`.
-- On CUDA the solver selects MAGMA for the process (`SolverConfig.linalg_library`; an empty string leaves the setting alone).
+- On CUDA the solver selects MAGMA for the process (`SolverConfig.linalg_library`; an empty string leaves the setting alone); its own inverses and LU factorisations run in cuSOLVER or in the kernels of the package.
 - `ColorRouterForward` is the general forward class despite its name; `response` and `Tabs` are the colour-router outputs, `efficiencies` and `stack_field` the general ones.
 
 ## Tools for agents (MCP)
@@ -537,7 +537,7 @@ To cite a particular version of the code as well:
   title   = {{SPECTRA-RCWA}: eigendecomposition-free batched {RCWA} forward and adjoint in {PyTorch}},
   doi     = {10.5281/zenodo.24459563},
   url     = {https://github.com/hyoseokp/spectra-rcwa},
-  version = {1.6.1},
+  version = {1.6.2},
   year    = {2026}
 }
 ```

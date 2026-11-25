@@ -48,6 +48,19 @@ def test_slab_against_airy():
     assert abs(nudged["total"]["R"]["p"] - airy(nudged["solved_at_nm"] / 1000)) < 1e-8 < abs(nudged["total"]["R"]["p"] - airy(0.54))
 
 
+def test_uniform_layers_against_the_matrices(monkeypatch):
+    """Uniform layers in closed form against the same layers through the solver: thick, lossy, metal, of other materials, on top, below and between."""
+    problem = cpu(P.example("two_layer_grating"))
+    def uniform(d, **kw):
+        return dict(thickness_um=d, pattern=dict(type="uniform"), **kw)
+    g = problem["layers"][0]
+    problem["layers"] = [uniform(0.1, eps_design=2.25), uniform(0.02, eps_design=[-8.0, 0.9]), g, uniform(1.3, eps_design=2.1), g, uniform(0.07), uniform(5.0, eps_design=[2.0, 0.01])]
+    a = P.solve(problem)["arrays"]
+    monkeypatch.setattr(P, "_uniform", lambda layer: False)
+    b = P.solve(problem)["arrays"]
+    assert np.abs(a["T"] - b["T"]).max() < 1e-10 and np.abs(a["R"] - b["R"]).max() < 1e-10
+
+
 def test_p_and_s_are_the_solver_columns_in_the_plane_of_incidence():
     problem = cpu(P.example("lamellar_grating"))
     fwd = P._forward(problem)
