@@ -19,6 +19,7 @@ import torch
 from . import matfun
 from .config import SolverConfig
 from .geometry import BDD, SolveGeometry, homogeneous_v
+from .kernels.product import baddbmm, matmul
 from .kernels.thin import thin_mn
 
 EPS_REFERENCE = 4.0 + 4.0j
@@ -40,20 +41,20 @@ def thin_block(ops, e, sc, gc, wh, y0: BDD, cfg: SolverConfig):
         ss, qq, gg = y0.right(sp), z0.left(qs), y0.right(z0.left(qgp))
         m, k = torch.eye(e.shape[-1], dtype=e.dtype, device=e.device) + 0.5 * (e + gg - ss - qq), 0.5 * (e - gg - ss + qq)
     t = matfun.inverse(m, cfg.layer_inverse)
-    return t, k @ t
+    return t, matmul(k, t)
 
 
 def double_block(t, r, doublings: int, cfg: SolverConfig, keep: bool = False):
     """(T, R, tree) of ``doublings`` Redheffer products of a symmetric block with itself; with ``keep``, tree = [(t, r, x = (I - r r)^-1)] of the halves, thinnest first."""
     tree = []
     for _ in range(doublings):
-        m = torch.baddbmm(r, r, r, beta=0.0, alpha=-1.0)               # I - r r
+        m = baddbmm(r, r, r, beta=0.0, alpha=-1.0)               # I - r r
         m.diagonal(dim1=-2, dim2=-1).add_(1.0)
         x = matfun.inverse(m, cfg.layer_inverse)
         if keep:
             tree.append((t, r, x))
-        w = t @ x
-        t, r = w @ t, torch.baddbmm(r, w, r @ t)
+        w = matmul(t, x)
+        t, r = matmul(w, t), baddbmm(r, w, matmul(r, t))
     return t, r, tree
 
 

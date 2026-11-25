@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.1 (2026-11-25)
+
+Changed
+* Large single solves are 1.8 to 2.3 times faster on an RTX 5090 (one wavelength and direction; value: 5.07 to 2.20 s at 7442 x 7442 matrices, 1.59 to 0.71 s
+  at 4802, 188 to 105 ms at 2178) and a single solve at 578 takes 24 ms instead of 36: one product of large complex64 matrices runs as three real ones, and the LU
+  and the inverse of one matrix, or of a few large ones, in cuSOLVER. They need about a fifth more GPU memory. The batch of 144 solves is as fast as before.
+* complex128 products on a GeForce GPU run as three real ones: 7 % less time for the 144 solves in complex128 on an RTX 5090.
+
 ## 1.6.0 (2026-11-25)
 
 Added

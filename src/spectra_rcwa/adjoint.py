@@ -25,10 +25,11 @@ from torch.autograd.function import once_differentiable
 
 from . import blocks, matfun
 from .geometry import BDD
-from .kernels import structured as S
+from .kernels import single, structured as S
 from .kernels.bdd_mul import bdd_left, bdd_right
 from .kernels.lincomb import lincomb
 from .kernels.pivlu import lu_factor, lu_solve, lu_solve_h
+from .kernels.product import baddbmm, matmul
 
 
 class LayerOps:
@@ -103,7 +104,7 @@ class LayerOps:
         m1, m2 = kxc * self.exx, kyc * self.eyy
         if self.exy is not None:
             m1, m2 = m1 + kyc * self.exy, m2 + kxc * self.exy
-        m = torch.cat((self.einv @ m1, self.einv @ m2), 2)               # [b, N, 2N]
+        m = torch.cat((matmul(self.einv, m1), matmul(self.einv, m2)), 2)               # [b, N, 2N]
         a = torch.cat((-kxc * m, -kyc * m), 1)
         a[:, :n, :n] += self.exx
         a[:, n:, n:] += self.eyy
@@ -193,16 +194,21 @@ class _Factored:
 
     def __init__(self, m, cfg):
         if m.is_cuda and m.dtype == torch.complex64 and not torch.is_grad_enabled():
-            self.lu, self.perm = lu_factor(m)
+            self.lib = single.few(m)
+            self.lu, self.perm = single.lu_factor(m) if self.lib else lu_factor(m)
             self.inv = None
         else:
             self.inv = matfun.inverse(m, cfg.top_inverse)
 
     def solve(self, x):
-        return self.inv @ x if self.lu is None else lu_solve(self.lu, self.perm, x)
+        if self.lu is None:
+            return self.inv @ x
+        return single.lu_solve(self.lu, self.perm, x) if self.lib else lu_solve(self.lu, self.perm, x)
 
     def solve_h(self, x):
-        return self.inv.mH @ x if self.lu is None else lu_solve_h(self.lu, self.perm, x)
+        if self.lu is None:
+            return self.inv.mH @ x
+        return single.lu_solve(self.lu, self.perm, x, adjoint=True) if self.lib else lu_solve_h(self.lu, self.perm, x)
 
     lu = None
 
@@ -215,18 +221,18 @@ def _through_block(block, y, y0, cfg, vi=None):
         rho = (y0 + y).inverse().matmul_bdd(y0 - y)                    # b = rho a below the block
         tx_in, rho_tx = bdd_right(rho, r, -1, 1), lambda x: bdd_left(rho, x)
     else:
-        rho = matfun.inverse(y0.dense() + y, cfg.top_inverse) @ (y0.dense() - y)
-        tx_in, rho_tx = _shift(-(r @ rho)), lambda x: rho @ x
+        rho = matmul(matfun.inverse(y0.dense() + y, cfg.top_inverse), y0.dense() - y)
+        tx_in, rho_tx = _shift(-matmul(r, rho)), lambda x: matmul(rho, x)
     xb = matfun.inverse(tx_in, cfg.layer_inverse)
-    tx = xb @ t                                                        # a below = tx a above
-    rho_top = torch.baddbmm(r, t, rho_tx(tx))
+    tx = matmul(xb, t)                                                   # a below = tx a above
+    rho_top = baddbmm(r, t, rho_tx(tx))
     seg = _Block(t, r, y0, rho, xb, tx, rho_top)
     if vi is not None:
         seg.rho_i = (y0 + vi).inverse().matmul_bdd(y0 - vi)
         seg.x_top = _Factored(bdd_left(seg.rho_i, rho_top, -1, 1), cfg)
         return None, seg
     seg.inv_top = matfun.inverse(_shift(rho_top.clone()), cfg.layer_inverse)
-    return bdd_left(y0, _shift(-rho_top) @ seg.inv_top), seg
+    return bdd_left(y0, matmul(_shift(-rho_top), seg.inv_top)), seg
 
 
 def solve_stack(fwd, e_all, einv_all, layers, keep=False):
@@ -267,8 +273,8 @@ def solve_stack(fwd, e_all, einv_all, layers, keep=False):
         del sc, gc, s
         seg = _Recursion(ops, g.lam_index, g.omega.real, h, turn * h / 2.0, sp, qgp, ys=[y])
         for _ in range(steps):
-            d = matfun.inverse(lincomb([c, sp @ y], [1.0, -1.0]), cfg.step_inverse)
-            y = lincomb([y, qgp @ y, qs], [1.0, 1.0, -1.0]) @ d
+            d = matfun.inverse(lincomb([c, matmul(sp, y)], [1.0, -1.0]), cfg.step_inverse)
+            y = matmul(lincomb([y, matmul(qgp, y), qs], [1.0, 1.0, -1.0]), d)
             if keep:
                 seg.ys.insert(0, y)
             seg.ds.insert(0, d)

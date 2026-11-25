@@ -51,6 +51,36 @@ def test_inverses_vs_identity():
     assert float(r_piv) < 1e-3 and float(r_blk) < 1e-4
 
 
+@pytest.mark.parametrize("dtype, n, batch", [(torch.complex64, 1800, 1), (torch.complex64, 2000, 2), (torch.complex128, 256, 3)])
+def test_three_real_products(dtype, n, batch):
+    from spectra_rcwa.kernels import product
+    g = torch.Generator("cuda").manual_seed(0)
+    a, b, c = (torch.randn(batch, n, n, dtype=dtype, device="cuda", generator=g) for _ in range(3))
+    tol = 5e-6 if dtype == torch.complex64 else 1e-13
+    assert product._as_three(a, b) or dtype == torch.complex128
+    assert rel(product._three_real(a, b) if dtype == torch.complex128 else product.matmul(a, b), a @ b) < tol
+    for alpha, beta in ((1.0, 1.0), (-0.5, 0.0), (2.0, 4.0), (-1.0, 1.0)):
+        assert rel(product.baddbmm(c, a, b, beta=beta, alpha=alpha), torch.baddbmm(c, a, b, beta=beta, alpha=alpha)) < tol
+
+
+def test_cusolver_route_equals_the_batched_kernels():
+    """One solve takes cuSOLVER's factorisations, a batch the kernels: the same response and gradient."""
+    from spectra_rcwa.kernels import single
+    fwd = tiny_forward(dtype=torch.complex64, config=DEFAULT.replace(block_from_steps=1), device="cuda")
+    out = []
+    for few in (lambda m: True, lambda m: False):
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(single, "few", few)
+            r = tiny_density().float().cuda().requires_grad_(True)
+            tabs = fwd.response(r)
+            weights = torch.arange(12.0, device="cuda", dtype=tabs.dtype).reshape(4, 3)
+            out.append((tabs.detach(), torch.autograd.grad((tabs * weights).sum(), r)[0]))
+    assert rel(out[0][0], out[1][0]) < 1e-5 and rel(out[0][1], out[1][1]) < 1e-3
+    library = torch.backends.cuda.preferred_linalg_library()
+    single.inverse(torch.eye(4, dtype=torch.complex64, device="cuda")[None])
+    assert torch.backends.cuda.preferred_linalg_library() == library
+
+
 def test_handwritten_sqrt_backward_vs_plain():
     fwd = tiny_forward(dtype=torch.complex64, config=DEFAULT, device="cuda")
     _, a, _ = layer_inputs(fwd, tiny_density().float())

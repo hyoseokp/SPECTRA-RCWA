@@ -14,6 +14,7 @@ import torch
 from torch.autograd.function import once_differentiable
 
 from .gjinv import MAX_N, gj_inverse
+from .product import baddbmm, matmul
 
 BASE = MAX_N
 
@@ -33,13 +34,13 @@ def block_inverse(a: torch.Tensor) -> torch.Tensor:
     a11, a12 = a[:, :h, :h], a[:, :h, h:]                          # strided views, no copies
     a21, a22 = a[:, h:, :h], a[:, h:, h:]
     x = block_inverse(a11)
-    t = a21 @ x
-    s = torch.baddbmm(a22, t, a12, beta=1.0, alpha=-1.0)
+    t = matmul(a21, x)
+    s = baddbmm(a22, t, a12, beta=1.0, alpha=-1.0)
     si = block_inverse(s)
-    u = x @ a12
-    b12 = -(u @ si)
-    b21 = -(si @ t)
-    b11 = torch.baddbmm(x, b12, t, beta=1.0, alpha=-1.0)           # X + U Si T = X - B12 T
+    u = matmul(x, a12)
+    b12 = -matmul(u, si)
+    b21 = -matmul(si, t)
+    b11 = baddbmm(x, b12, t, beta=1.0, alpha=-1.0)           # X + U Si T = X - B12 T
     out = torch.empty_like(a)
     out[:, :h, :h] = b11
     out[:, :h, h:] = b12

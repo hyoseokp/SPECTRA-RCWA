@@ -38,6 +38,8 @@ from . import lapack
 from .config import SolverConfig
 from .kernels.blockinv import block_inverse, inv_block
 from .kernels.lincomb import lincomb
+from .kernels.product import baddbmm, matmul
+from .kernels import single
 
 _ROT = complex(math.cos(math.pi / 4), math.sin(math.pi / 4))
 _TAIL_COEF = (1.0, -0.5, 0.375, -0.3125, 0.2734375)               # (1 + d)^(-1/2)
@@ -56,7 +58,7 @@ def _poly(c, z, z2, z3, f):
             xs.append(z3)
             cs.append(c[deg] * f3)
         block = lincomb(xs, cs, diag=c[b] if c[b] != 0.0 else None)
-        out = block if out is None else torch.baddbmm(block, z3, out, alpha=f3)
+        out = block if out is None else baddbmm(block, z3, out, alpha=f3)
     return out
 
 
@@ -64,8 +66,8 @@ def cos_sinc(a: torch.Tensor, wh: torch.Tensor, cfg: SolverConfig):
     """(cos(x) - 1, sin(x) / x, (cos(x) - 1) / x^2) with x^2 = wh^2 a, for a batch [B, n, n] and wh [B, 1, 1]."""
     deg, theta = (cfg.cos_degree, cfg.cos_theta) if a.dtype == torch.complex64 else (8, 1.0)        # complex128: down to its rounding
     z = lincomb([a], [(wh * wh).reshape(-1)])
-    z2 = z @ z
-    z3 = z2 @ z
+    z2 = matmul(z, z)
+    z3 = matmul(z2, z)
     norm = max(float(torch.linalg.matrix_norm(z2.detach(), ord=1).max()) ** 0.5, float(torch.linalg.matrix_norm(z3.detach(), ord=1).max()) ** (1.0 / 3.0))
     s = max(1, int(math.ceil(math.log(max(norm / theta, 1.0)) / math.log(4.0))))
     f = 4.0 ** -s
@@ -74,9 +76,9 @@ def cos_sinc(a: torch.Tensor, wh: torch.Tensor, cfg: SolverConfig):
     gc = None
     for k in range(s):
         if k == s - 1:
-            gc = torch.baddbmm(sc, sc, sc, beta=0.0, alpha=-0.5)
-        sc = torch.baddbmm(sc, sc, e)
-        e = torch.baddbmm(e, e, e, beta=4.0, alpha=2.0)
+            gc = baddbmm(sc, sc, sc, beta=0.0, alpha=-0.5)
+        sc = baddbmm(sc, sc, e)
+        e = baddbmm(e, e, e, beta=4.0, alpha=2.0)
     return e, sc, gc
 
 
@@ -84,10 +86,18 @@ def _cuda64(x: torch.Tensor) -> bool:
     return x.is_cuda and x.dtype == torch.complex64
 
 
+def _single(m: torch.Tensor, kind: str) -> bool:
+    if kind == "block":
+        return m.shape[0] == 1 and m.shape[-1] <= single.BLOCK_UP_TO
+    return kind in ("pivlu", "permuted") and single.few(m)
+
+
 def raw_inverse(m: torch.Tensor, kind: str) -> torch.Tensor:
     """Batched inverse without autograd.  ``kind``: "block", "pivlu" or "torch" (CUDA complex64 only;
     anything else uses torch.linalg.inv_ex, which does not synchronise with the host: :mod:`spectra_rcwa.lapack`)."""
     if _cuda64(m):
+        if _single(m, kind):
+            return single.inverse(m)
         if kind == "block":
             return block_inverse(m.contiguous())
         if kind == "pivlu":
@@ -99,6 +109,8 @@ def raw_inverse(m: torch.Tensor, kind: str) -> torch.Tensor:
 def inverse(m: torch.Tensor, kind: str) -> torch.Tensor:
     """Batched inverse, differentiable (same choices as :func:`raw_inverse`, and "permuted": :func:`spectra_rcwa.kernels.pivlu.permuted_block_inverse`, under autograd "pivlu")."""
     if _cuda64(m):
+        if not torch.is_grad_enabled() and _single(m, kind):
+            return single.inverse(m)
         if kind == "permuted" and not torch.is_grad_enabled():
             from .kernels.pivlu import permuted_block_inverse
             return permuted_block_inverse(m)
