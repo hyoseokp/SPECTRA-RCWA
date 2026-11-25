@@ -19,6 +19,7 @@ from . import lapack
 from .config import DEFAULT
 from .forward import ColorRouterForward, Ray, Stack
 from .geometry import reciprocal, truncated_orders
+from .normals import in_plane
 
 EXAMPLES = {
     "lamellar_grating": dict(
@@ -70,6 +71,9 @@ SCHEMA = {
         "truncation": {"enum": ["auto", "rectangular", "circular"],
                        "description": "Orders kept: rectangular |m| <= M, |n| <= N; circular: the ellipse through (M, 0) and (0, N) with the symmetry of the lattice. "
                        "Default auto: rectangular at 90 degrees, circular otherwise (a hexagonal pattern keeps its symmetry only in the circular one)."},
+        "factorization": {"enum": ["auto", "laurent", "li", "normal"],
+                          "description": "How the in-plane permittivity is truncated. auto (default): Li's rule for a 1D grating, Laurent's for a crossed one. "
+                          "normal: for crossed gratings of high index or metal, far fewer orders for the same error. li: 90 degrees and rectangular orders only."},
         "fourier_orders": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2,
                            "description": "Orders kept along x and y: (2M + 1)(2N + 1) orders, layer matrices of twice that size. [M, 0] is a 1D grating. Check convergence by raising them."},
         "wavelengths_nm": {"type": "array", "items": {"type": "number"}},
@@ -232,12 +236,14 @@ def density(pattern: dict, period_um, grid, angle: float = 90.0) -> np.ndarray:
     return np.ascontiguousarray(rho)
 
 
-def _exact(pattern: dict, period_um, orders, angle: float = 90.0) -> bool:
+def _exact(pattern: dict, period_um, orders, angle: float = 90.0, rule: str = "auto") -> bool:
     """Whether the Fourier coefficients of a pattern are used exactly instead of from samples.
 
     Any lamellar pattern; a rectangle or a disk of a crossed grating that does not overlap its images (a rectangle may at 90 degrees).  With orders along one axis only,
     Li's rule needs the pattern to vary along one axis."""
     kind = pattern.get("type")
+    if rule == "li" and min(orders) > 0:                   # Li's rules of a crossed grating work on samples
+        return False
     if kind == "disk" and 2 * float(pattern["radius_um"]) > _shortest(period_um, angle) * (1 + 1e-9):
         return False
     if kind == "rectangle" and angle != 90:
@@ -287,7 +293,7 @@ def _pixel_coefficients(values: torch.Tensor, m, n) -> torch.Tensor:
 
 
 def _matrices(fwd, pattern: dict, period_um, rho: torch.Tensor):
-    """Permittivity matrices (E [L, 2, N, N], E^-1 [L, N, N]) of a layer from exact Fourier coefficients, by the rule of SolverConfig "auto"."""
+    """Permittivity matrices (E [L, 2, N, N], E^-1 [L, N, N]) of a layer from exact Fourier coefficients."""
     ox, oy = (max(o[i] for o in fwd.order_list) for i in (0, 1))
     m, n = torch.meshgrid(torch.arange(-2 * ox, 2 * ox + 1), torch.arange(-2 * oy, 2 * oy + 1), indexing="ij")
     orders = torch.tensor(fwd.order_list)
@@ -305,7 +311,15 @@ def _matrices(fwd, pattern: dict, period_um, rho: torch.Tensor):
         eps, inv = lo * one + (hi - lo) * c, one / lo + (1 / hi - 1 / lo) * c
         along_y = pattern.get("axis") == "y"
     laurent = eps[:, row, col]
-    if min(fwd.orders) > 0:
+    rule = fwd.config.factorization
+    if rule == "normal" and min(fwd.orders) > 0:
+        samples = rho
+        if _pixels(pattern):                               # the pixel that each sample of the grid is in
+            i, j = (((torch.arange(g, device=fwd.device) * s * 2 + g) // (2 * g)) % s for g, s in zip(fwd.shape, rho.shape))
+            samples = rho[i][:, j]
+        tensor = fwd._tensor(samples.real[None]).to(torch.complex128)
+        e = in_plane(laurent, lapack.inv(inv[:, row, col]), tensor)
+    elif rule == "laurent" or min(fwd.orders) > 0:
         e = laurent[:, None].expand(-1, 2, -1, -1)
     else:                                                  # Li: the inverse rule for the component across the edges
         across = lapack.inv(inv[:, row, col])
@@ -339,6 +353,11 @@ def check(problem: dict) -> dict:
             raise ValueError("lattice_angle_deg must be between 0 and 180")
         if problem.get("truncation", "auto") not in ("auto", "rectangular", "circular"):
             raise ValueError("truncation is 'auto', 'rectangular' or 'circular'")
+        rule = problem.get("factorization", "auto")
+        if rule not in ("auto", "laurent", "li", "normal"):
+            raise ValueError("factorization is 'auto', 'laurent', 'li' or 'normal'")
+        if rule == "li" and (angle != 90 or _order_list(problem) != truncated_orders(_orders(problem))):
+            raise ValueError("factorization 'li' needs lattice_angle_deg 90 and the rectangular truncation")
         if angle != 90 and min(ox, oy) == 0:
             raise ValueError("an oblique lattice needs orders along both lattice vectors; a 1D grating has lattice_angle_deg 90")
         if not 60 - 1e-9 <= angle <= 120 + 1e-9:
@@ -430,7 +449,7 @@ def _forward(problem, eps_design=None, eps_fill=None, orders=None):
     incid = problem.get("incidence") or [dict(theta_deg=0.0, phi_deg=0.0)]
     rays = tuple(Ray(math.radians(float(i.get("theta_deg", 0.0))), math.radians(float(i.get("phi_deg", 0.0))), 1.0, n_in) for i in incid)
     return ColorRouterForward(stack=stack, rays=rays, wavelengths_nm=[float(w) for w in problem["wavelengths_nm"]],
-                              device=device, dtype=dtype, config=DEFAULT)
+                              device=device, dtype=dtype, config=DEFAULT.replace(factorization=problem.get("factorization", "auto")))
 
 
 def _layers(problem, fwd, densities, exact=True):
@@ -439,7 +458,7 @@ def _layers(problem, fwd, densities, exact=True):
     out = []
 
     def content(f, pattern, rho):
-        if _pixels(pattern) or (exact and _exact(pattern, problem["period_um"], f.orders, _angle(problem))):
+        if _pixels(pattern) or (exact and _exact(pattern, problem["period_um"], f.orders, _angle(problem), f.config.factorization)):
             return _matrices(f, pattern, problem["period_um"], rho)
         return rho
 

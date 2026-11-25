@@ -3,7 +3,7 @@
     inv([[A, B], [C, D]]):  X = inv(A),  T = C X,  S = D - T B,  Si = inv(S),  U = X B
                             [[X + U Si T, -U Si], [-Si T, Si]]
 
-recursing on A and S down to ``BASE``, where cuBLAS getrf/getriBatched (pivoted inside the base block) or,
+recursing on A and S down to ``BASE``, where a Gauss-Jordan kernel (:mod:`.gjinv`, pivoted inside the base block) or,
 on CPU, torch.linalg.inv takes over.  There is no pivoting across blocks: use it only on matrices that do not
 need it (the later Denman-Beavers iterates and the boundary-solve matrices; not the first DB iterates).
 No host synchronisation.  :func:`inv_block` adds the autograd backward -X^H G X^H.
@@ -13,14 +13,14 @@ from __future__ import annotations
 import torch
 from torch.autograd.function import once_differentiable
 
-from .cublas_inv import inv_cublas
+from .gjinv import MAX_N, gj_inverse
 
-BASE = 80
+BASE = MAX_N
 
 
 def _base_inv(a):
     if a.is_cuda and a.dtype == torch.complex64:
-        return inv_cublas(a.contiguous())
+        return gj_inverse(a)
     return torch.linalg.inv(a)
 
 

@@ -88,7 +88,7 @@ This package computes
 * **the recursion** with one batched pivoted inverse per step and an output-to-input pass over two right-hand sides. An evanescent
   order makes C and S large, so a layer is cut in steps with ωh max(k) at most 4.5 (`SolverConfig.max_step_phase`): 3 steps for
   0.25 µm at (8, 8) orders;
-* **for a layer of 7 steps or more** (`SolverConfig.block_from_steps`; 0.8 µm at (8, 8) orders) its S-matrix instead: one thin step in the
+* **for a layer of 5 steps or more** (`SolverConfig.block_from_steps`; 0.6 µm at (8, 8) orders) its S-matrix instead: one thin step (at most 6.5) in the
   wave basis of a fixed reference admittance, then Redheffer products of the layer with itself, r doublings for 2^r steps with
   r + 1 inverses (`spectra_rcwa.blocks`);
 * **the gradient from one adjoint field** (`spectra_rcwa.adjoint`), with no graph. The objective needs the field for two incident polarisations only, and for a variation of P and Q
@@ -131,7 +131,7 @@ Rayleigh point in it, unlike a vacuum basis. Both routes against complex128 thro
 
 The absorbing layer has A = 0.7149 and 0.7143 (reference 0.7149 and 0.7143) for the two polarisations, with A = 1 − T − R from the fluxes; in the lossless layers
 that A is at most 5.6e-06. Central differences of complex128 along the adjoint gradient at 3 µm: 0.0094546 against its norm 0.0094544 (SiN, recursion), 0.0094546 against 0.0094545 (SiN, doubling), 0.0051844 against 0.0051847 (Si, doubling).
-Per solve, doubling is faster from about 3 steps on (6.5 against 5.6 ms at 3 steps and 10.0 against 6.5 ms at 7, in a stack of two), but it keeps more matrices for the gradient: 8 layers of 0.25 µm through doubling do not fit in 32 GB at 144 solves, so a layer goes through its S-matrix from 7 steps on. The two Si rows were measured with 6 quadrature nodes per step in the gradient; from version 1.0.0 the node count follows ωh|ε|^(1/2), and those two cases use 10.
+Per solve, doubling is faster from about 3 steps on (6.5 against 5.6 ms at 3 steps and 10.0 against 6.5 ms at 7, in a stack of two), but it keeps more matrices for the gradient: 8 layers of 0.25 µm through doubling do not fit in 32 GB at 144 solves, so up to version 1.5 a layer went through its S-matrix from 7 steps on; from 1.6, with a larger thin step, from 5. The two Si rows were measured with 6 quadrature nodes per step in the gradient; from version 1.0.0 the node count follows ωh|ε|^(1/2), and those two cases use 10.
 
 ### Option: the route through Γ, before the patch
 
@@ -219,11 +219,14 @@ t, r = fwd.efficiencies([(rho_a, 0.25), (rho_b, 0.25)])      # order (m, n) at i
 ### Scope and conventions
 
 * Rectangular lattices with periods along x and y, and oblique ones: `lattice_angle_deg` is the angle between a1 = (Λx, 0) and a2 (60 or 120 with
-  equal periods is hexagonal). An oblique lattice keeps a circle of orders (`truncation="circular"`), so a hexagonal pattern keeps its symmetry, uses
-  the Laurent rule, needs orders along both vectors and has no wells. The two periods, the two order counts and the two sides of the design grid can differ, and
+  equal periods is hexagonal). An oblique lattice keeps a circle of orders (`truncation="circular"`), so a hexagonal pattern keeps its symmetry, has
+  no Li rule, needs orders along both vectors and has no wells. The two periods, the two order counts and the two sides of the design grid can differ, and
   `fourier_orders=(M, 0)` is a 1D grating. On a rectangular lattice all (2M + 1)(2N + 1) orders are kept. E⁻¹ in P is the inverse of the Laurent matrix. For the in-plane
   components a 1D grating uses Li's inverse rule, so TE and TM converge alike; a crossed grating uses the Laurent rule by default, as in torcwa,
-  and Li's rules with `SolverConfig(factorization="li")`. Metals and other high-contrast patterns converge slowly in the orders.
+  and Li's rules with `SolverConfig(factorization="li")`. `SolverConfig(factorization="normal")` uses a smooth normal tensor of the pattern; for smooth
+  shapes of high index it needs far fewer orders: on a silicon pillar (period 0.5 µm, 633 nm) its largest efficiency error is 9.6e-3 at 226 x 226
+  and 4.3e-3 at 394 x 394 matrices, against 6.3e-2 at 394 x 394 and 1.6e-2 at 3586 x 3586 with Laurent. It does not help where the orders cannot resolve the
+  features or the waves in the pattern. Metals and other high-contrast patterns converge slowly in the orders.
 * A pattern mixes two isotropic, non-magnetic materials linearly through the density, and `MultiLayerForward` uses the same two in every layer; a
   uniform layer is density 0 or 1. A layer of other materials goes into `stack_field` as the `layer_block` of a second forward with the same
   lattice, orders, rays and wavelengths.
@@ -387,7 +390,7 @@ To cite a particular version of the code as well:
   title   = {{SPECTRA-RCWA}: eigendecomposition-free batched {RCWA} forward and adjoint in {PyTorch}},
   doi     = {10.5281/zenodo.24459563},
   url     = {https://github.com/hyoseokp/spectra-rcwa},
-  version = {1.5.0},
+  version = {1.6.0},
   year    = {2026}
 }
 ```

@@ -14,8 +14,8 @@ Good fits:
 Not a fit, or check first:
 
 - Each layer mixes two isotropic, non-magnetic materials linearly through a density in [0, 1]. Anisotropic, magnetic or graded-index (more than two materials in one layer) patterns are out of scope. A layer of other materials than the rest of the stack is possible as a stored block (no gradient through it); the MCP problem format does this with per-layer `eps_design` / `eps_fill`.
-- Lattices with vectors a1 = (Λx, 0) and a2 = Λy (cos γ, sin γ): rectangular by default, oblique with `lattice_angle_deg` γ (60 or 120 and equal periods: hexagonal). An oblique lattice needs orders along both vectors, keeps a circle of orders (`truncation`), uses the Laurent rule, and has efficiencies and gradients but no colour-router wells.
-- A 1D grating (`fourier_orders` [M, 0] or [0, N]) uses Li's inverse rule, so TE and TM converge alike. A crossed grating uses the Laurent rule by default (`SolverConfig(factorization="li")` switches to Li's rules): metals and other high-contrast patterns converge slowly in the orders. Check convergence and say so.
+- Lattices with vectors a1 = (Λx, 0) and a2 = Λy (cos γ, sin γ): rectangular by default, oblique with `lattice_angle_deg` γ (60 or 120 and equal periods: hexagonal). An oblique lattice needs orders along both vectors, keeps a circle of orders (`truncation`), has no Li rule, and has efficiencies and gradients but no colour-router wells.
+- A 1D grating (`fourier_orders` [M, 0] or [0, N]) uses Li's inverse rule, so TE and TM converge alike. A crossed grating uses the Laurent rule by default; `factorization="normal"` (in a problem or `SolverConfig`) needs far fewer orders for smooth shapes of high index (a silicon pillar: 226 x 226 matrices have less error than Laurent's 3586 x 3586), so try it first there and compare both with `convergence_in_orders`; "li" switches to Li's rules. With Laurent: metals and other high-contrast patterns converge slowly in the orders. Check convergence and say so.
 - Non-periodic devices (a finite lens, a waveguide circuit) need a full-wave solver such as FDTD; a large-area lens can only be approximated cell by cell.
 
 ## Install

@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.6.0 (2026-11-25)
+
+Added
+* `factorization="normal"` (`SolverConfig`, and `factorization` of a problem): the in-plane permittivity of a crossed grating from a smooth normal tensor
+  of the pattern, with the adjoint gradient, on any lattice. On a silicon pillar the largest efficiency error is 4.3e-3 at 394 x 394 matrices, against
+  6.3e-2 with the Laurent rule, which reaches 1.6e-2 at 3586 x 3586. On a freeform pattern with small features the well responses and the
+  gradient were not more accurate at the same orders. The default stays Laurent.
+* The wells of the colour router with circular orders (`Stack(truncation="circular")`). At 9 circular orders (506 x 506) value and gradient of the
+  benchmark problem take 172 ms on an RTX 5090, against 270 ms at 8 rectangular orders (578 x 578) on the same machine; the errors of the well responses against
+  a larger computation are 9.0e-4 and 7.7e-4.
+
+Changed
+* A layer goes through its S-matrix from 5 steps on instead of 7 (`block_from_steps`), with a thin step of up to 6.5 (`block_step_phase`). Layers of 5 or 6 steps
+  are up to 25 % faster, and the single-precision gradient of two 0.6 um silicon layers is off by 5e-5 instead of 6e-4. Results change within rounding.
+* The block inverse ends in a Gauss-Jordan kernel instead of cuBLAS: 6 % faster at 578, 16 % at 226.
+
 ## 1.5.0 (2026-11-25)
 
 Added

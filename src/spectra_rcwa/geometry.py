@@ -138,7 +138,7 @@ class SolveGeometry:
     out_phase: torch.Tensor      # [B, 2N]     exp(i w kz_out z_det) for the output-layer field
     vo: BDD                      # output-medium V (for H in the output layer)
     coef: torch.Tensor           # [B, 4, N]   p/s projection x power norm, evanescent zeroed
-    phase_x: torch.Tensor | None  # [B, Sx, Ox] exp(i w kx_order x); None without a detector plane (orders that are not a full rectangle)
+    phase_x: torch.Tensor | None  # [B, Sx, Ox] exp(i w kx_order x); None on an oblique lattice, which has no detector plane
     phase_y: torch.Tensor | None  # [B, Sy, Oy]
     thickness: float
     orders: tuple[int, int]
@@ -166,7 +166,7 @@ def build_geometry(solves, *, orders, detector_samples, period, thickness, detec
     order_list = full if order_list is None else order_list
     order_m, order_n = torch.tensor(order_list, device=device, dtype=torch.int64).unbind(1)
     n_orders = len(order_list)
-    plane = lattice_angle_deg == 90 and order_list == full
+    plane = lattice_angle_deg == 90
     lx, ly = period
     (b1x, b1y), (_, b2y) = reciprocal(period, lattice_angle_deg)
     ref = n_orders // 2  # the (0, 0) order: n varies fastest, as in torcwa, and the orders come in pairs +-(m, n)

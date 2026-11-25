@@ -32,9 +32,10 @@ import torch
 from . import adjoint, blocks, lapack, matfun
 from .boundary import boundary_direct, transmitted_smatrix
 from .config import DEFAULT, SolverConfig
-from .geometry import BDD, SolveGeometry, build_geometry, truncated_orders
+from .geometry import BDD, SolveGeometry, build_geometry, reciprocal, truncated_orders
 from .kernels import lincomb as _lincomb
 from .kernels.bdd_pair import bdd_pair
+from .normals import in_plane, normal_tensor
 
 Permittivity = Union[complex, float, Callable[[float], complex]]
 
@@ -66,8 +67,8 @@ class Stack:
     ``lattice_angle_deg`` is the angle between the lattice vectors a1 = (period_x, 0) and a2 = period_y (cos, sin) of an oblique lattice (60 or 120 with
     equal periods: hexagonal); ``density[i, j]`` is then the sample at (i / H) a1 + (j / W) a2, and order (m, n) adds m b1 + n b2 of the reciprocal
     lattice.  ``truncation`` picks the orders kept ("auto": rectangular at 90 degrees, circular otherwise; see
-    :func:`spectra_rcwa.geometry.truncated_orders`).  Without a full rectangle of orders on a 90 degree lattice there are efficiencies, fields
-    and their gradients, but no wells, and the Laurent rule.
+    :func:`spectra_rcwa.geometry.truncated_orders`).  An oblique lattice has efficiencies, fields and their
+    gradients, but no wells and no Li rule.
     """
 
     period_um: tuple[float, float]
@@ -167,8 +168,7 @@ class ColorRouterForward:
         ox, oy = self.orders
         self.order_list = stack.order_list()
         self.n_orders = len(self.order_list)
-        self.rectangular = stack.lattice_angle_deg == 90 and self.order_list == truncated_orders(self.orders)
-        if not self.rectangular and config.factorization == "li":
+        if config.factorization == "li" and (stack.lattice_angle_deg != 90 or self.order_list != truncated_orders(self.orders)):
             raise ValueError("factorization='li' needs lattice_angle_deg 90 and the rectangular truncation")
         self.shape = tuple(int(s) for s in stack.density_shape)
 
@@ -201,6 +201,7 @@ class ColorRouterForward:
         self.li_mx = (torch.arange(2 * ox + 1, device=self.device)[:, None] - torch.arange(2 * ox + 1, device=self.device)[None, :]) % self.shape[0]
         self.li_my = (torch.arange(2 * oy + 1, device=self.device)[:, None] - torch.arange(2 * oy + 1, device=self.device)[None, :]) % self.shape[1]
         self.li_gx, self.li_gy = gx + ox, gy + oy
+        self.box_index = (gx + ox) * (2 * oy + 1) + gy + oy              # of the orders in the full rectangle, for the detector plane
 
         # detector quadrants
         sx, sy = stack.detector_samples
@@ -239,8 +240,8 @@ class ColorRouterForward:
 
     # ------------------------------------------------------------------ physics
     def _econv(self, densities: torch.Tensor):
-        """Permittivity matrices per (density, wavelength), row d * L + lambda: [E_xx, E_yy] [rows, 2, N, N] and E^-1 = [[eps]]^-1 (for E_zz).
-        E_xx and E_yy follow Li's rules or are both [[eps]], by SolverConfig.factorization (see :class:`spectra_rcwa.config.SolverConfig`)."""
+        """Permittivity matrices per (density, wavelength), row d * L + lambda: [E_xx, E_yy] [rows, 2, N, N], or [E_xx, E_yy, E_xy = E_yx] with the
+        rule "normal", and E^-1 = [[eps]]^-1 (for E_zz).  The rule is SolverConfig.factorization (see :class:`spectra_rcwa.config.SolverConfig`)."""
         rho = densities.to(self.cdt)
         eps_map = (self.eps_bg[None, :, None, None]
                    + rho[:, None] * (self.eps_design - self.eps_bg)[None, :, None, None])
@@ -249,6 +250,10 @@ class ColorRouterForward:
         rule = self.config.factorization
         if rule == "laurent" or (rule == "auto" and min(self.orders) > 0):
             return e[:, None].expand(-1, 2, -1, -1), lapack.inv(e)
+        if rule == "normal" and min(self.orders) > 0:
+            inv = torch.fft.fft2(1.0 / eps_map) / (self.shape[0] * self.shape[1])
+            inv = lapack.inv(_take(inv.reshape(-1, *self.shape), self.conv_ix, self.conv_iy))
+            return in_plane(e, inv, self._tensor(densities).repeat_interleave(len(self.wavelengths_nm), 0)), lapack.inv(e)
         sx, sy = self.shape
         inv_map = (1.0 / eps_map).reshape(-1, sx, sy)
         tx = _take(torch.fft.fft(inv_map, dim=1) / sx, self.li_mx)                   # [[1/eps]]_x at each y: [rows, Mx, Mx, Sy]
@@ -259,6 +264,13 @@ class ColorRouterForward:
         exx = _take(fx, self.conv_iy, gx[:, None], gx[None, :])
         eyy = _take(fy, self.conv_ix, gy[:, None], gy[None, :])
         return torch.stack((exx, eyy), 1), lapack.inv(e)
+
+    def _tensor(self, densities: torch.Tensor):
+        """Toeplitz matrices [D, 3, N, N] of the normal tensor of densities [D, H, W]."""
+        st = self.stack
+        t = normal_tensor(densities, st.period_um, reciprocal(st.period_um, st.lattice_angle_deg))
+        spec = torch.fft.fft2(t) / (t.shape[-2] * t.shape[-1])
+        return _take(spec.reshape(-1, *t.shape[-2:]), self.conv_ix, self.conv_iy).reshape(-1, 3, self.n_orders, self.n_orders).to(self.cdt)
 
     def _rows(self, layers):
         """:meth:`_econv` of a list of layers, each a density [H, W] or its permittivity matrices (E [L, 2, N, N], E^-1 [L, N, N])."""
@@ -284,8 +296,9 @@ class ColorRouterForward:
         e = e_all[g.lam_index]
         exx, eyy = e[:, 0], e[:, 1]
         kx, ky = g.kx, g.ky
-        q = torch.cat((torch.cat((torch.diag_embed(-kx * ky), torch.diag_embed(kx ** 2) - eyy), -1),
-                       torch.cat((exx - torch.diag_embed(ky ** 2), torch.diag_embed(ky * kx)), -1)), -2)
+        exy = e[:, 2] if e.shape[1] == 3 else torch.zeros_like(exx)
+        q = torch.cat((torch.cat((torch.diag_embed(-kx * ky) - exy, torch.diag_embed(kx ** 2) - eyy), -1),
+                       torch.cat((exx - torch.diag_embed(ky ** 2), torch.diag_embed(ky * kx) + exy), -1)), -2)
         return self._p(einv_all, g), q
 
     def _layer(self, e_all, einv_all, g: SolveGeometry):
@@ -394,8 +407,8 @@ class ColorRouterForward:
 
     def _wells(self, out: torch.Tensor, g: SolveGeometry, strict: bool = True):
         """Quadrant fractions x exact transmission for both polarisations: [b, 4, 2], T [b, 2]."""
-        if not self.rectangular:
-            raise ValueError("the wells of a colour router need lattice_angle_deg 90 and the rectangular truncation; use efficiencies")
+        if g.phase_x is None:
+            raise ValueError("the wells of a colour router need lattice_angle_deg 90; use efficiencies")
         n = self.n_orders
         ox, oy = self.orders
         exy = out * g.out_phase[:, :, None]
@@ -403,7 +416,10 @@ class ColorRouterForward:
         ex, ey = exy[:, :n], exy[:, n:]
         hx, hy = hxy[:, :n], hxy[:, n:]
         ez = (g.ky[:, :, None] * hx - g.kx[:, :, None] * hy) / g.eps_out[:, None, None]
-        comp = torch.stack((ex, ey, ez), 1).reshape(out.shape[0], 3, 2 * ox + 1, 2 * oy + 1, 2)
+        comp = torch.stack((ex, ey, ez), 1)
+        if n != (2 * ox + 1) * (2 * oy + 1):
+            comp = comp.new_zeros(out.shape[0], 3, (2 * ox + 1) * (2 * oy + 1), 2).index_copy(2, self.box_index, comp)
+        comp = comp.reshape(out.shape[0], 3, 2 * ox + 1, 2 * oy + 1, 2)
         grid = torch.einsum("bxi,bcijp,byj->bcxyp", g.phase_x, comp, g.phase_y)
         intensity = (grid.real ** 2 + grid.imag ** 2).sum(1)
         field = torch.einsum("bxyp,wxy->bwp", intensity, self.masks) * self.area_element

@@ -44,7 +44,7 @@ def test_inverses_vs_identity():
     dev = torch.device("cuda")
     n = 290
     eye = torch.eye(n, dtype=torch.complex128, device=dev)
-    a = torch.randn(16, n, n, dtype=torch.complex64, device=dev)
+    a = torch.randn(16, n, n, dtype=torch.complex64, device=dev, generator=torch.Generator(dev).manual_seed(1))
     r_piv = (a.to(torch.complex128) @ pivoted_inverse(a).to(torch.complex128) - eye).abs().max()
     ad = a + 30 * eye.to(a.dtype)                                    # block inverse: no cross-block pivoting
     r_blk = (ad.to(torch.complex128) @ block_inverse(ad).to(torch.complex128) - eye).abs().max()

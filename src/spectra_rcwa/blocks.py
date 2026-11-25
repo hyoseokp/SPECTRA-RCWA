@@ -65,5 +65,5 @@ def layer_block(ops, omega, thickness: float, y0: BDD, cfg: SolverConfig, doubli
 
 
 def doublings_for(phase: float, cfg: SolverConfig) -> int:
-    """Doublings so that a thin step has w h max(k) at most cfg.max_step_phase; ``phase`` = w d max(k)."""
-    return max(1, int(math.ceil(math.log2(max(phase / cfg.max_step_phase, 1.0)))))
+    """Doublings so that a thin step has w h max(k) at most cfg.block_step_phase; ``phase`` = w d max(k)."""
+    return max(1, int(math.ceil(math.log2(max(phase / cfg.block_step_phase, 1.0)))))

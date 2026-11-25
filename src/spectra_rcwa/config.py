@@ -18,6 +18,9 @@ class SolverConfig:
                              "auto" (default): "li" for a 1D grating (one of the Fourier orders 0), where the TM efficiencies then converge as fast
                              as the TE ones instead of as 1/N; "laurent" for a crossed grating, as before 1.3.0 (there neither rule converges
                              uniformly faster: on a silicon pillar each is ahead for different orders).
+                             "normal": [[1/eps]]^-1 for the field across the edges and [[eps]] for the field along them, from a smooth normal
+                             tensor of the pattern (:mod:`spectra_rcwa.normals`); as "li" for a 1D grating.  A crossed grating of high index then
+                             needs far fewer orders: on a silicon pillar 226 x 226 matrices have less error than Laurent's 3586 x 3586.
     Matrix square root (scaled Denman-Beavers, product form):
         db_iters:            number of DB iterations (each costs one batched inverse).
         db_scaled:           how many of them use norm scaling (the first ``db_scaled``).
@@ -41,6 +44,7 @@ class SolverConfig:
         cos_degree, cos_theta: "entire": polynomial degree in A of C and S, and the scale 4^s with max(||z^2||_1^(1/2), ||z^3||_1^(1/3)) / 4^s <= cos_theta, z = (w h)^2 A.
         block_from_steps:    "entire": a layer that would need this many steps goes through its S-matrix, built by doubling
                              (:mod:`spectra_rcwa.blocks`), instead of the admittance recursion.
+        block_step_phase:    the limit on w h max(k) of the thin step of that S-matrix.
         adjoint_nodes, adjoint_tol: "entire", complex64: Gauss-Legendre nodes (even) per step of a layer with w h max(k, |eps|^(1/2)) up to 4.5 (in proportion beyond it), and the size of the first
                              term left out of the Taylor series between the planes, for the gradient (:mod:`spectra_rcwa.adjoint`).
     CUDA / complex64 implementation choices (ignored on CPU or for complex128):
@@ -71,7 +75,8 @@ class SolverConfig:
     max_step_phase: float = 4.5
     cos_degree: int = 6
     cos_theta: float = 6.0
-    block_from_steps: int = 7
+    block_from_steps: int = 5
+    block_step_phase: float = 6.5
     adjoint_nodes: int = 6
     adjoint_tol: float = 1e-5
     first_inverse: str = "pivlu"
@@ -94,10 +99,10 @@ class SolverConfig:
             raise ValueError("tail_order must lie in 0..4")
         if self.adjoint_nodes < 2 or self.adjoint_nodes % 2:
             raise ValueError("adjoint_nodes must be even and at least 2")
-        if min(self.max_step_phase, self.cos_theta, self.adjoint_tol) <= 0 or self.cos_degree < 1 or self.block_from_steps < 1:
-            raise ValueError("max_step_phase, cos_theta and adjoint_tol must be positive, cos_degree and block_from_steps at least 1")
-        if self.factorization not in ("auto", "li", "laurent"):
-            raise ValueError("factorization must be 'auto', 'li' or 'laurent'")
+        if min(self.max_step_phase, self.block_step_phase, self.cos_theta, self.adjoint_tol) <= 0 or self.cos_degree < 1 or self.block_from_steps < 1:
+            raise ValueError("max_step_phase, block_step_phase, cos_theta and adjoint_tol must be positive, cos_degree and block_from_steps at least 1")
+        if self.factorization not in ("auto", "li", "laurent", "normal"):
+            raise ValueError("factorization must be 'auto', 'li', 'laurent' or 'normal'")
         if self.boundary not in ("entire", "direct", "smatrix"):
             raise ValueError("boundary must be 'entire', 'direct' or 'smatrix'")
         if self.first_inverse not in ("pivlu", "torch"):

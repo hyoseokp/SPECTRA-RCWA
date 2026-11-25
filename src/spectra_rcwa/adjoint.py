@@ -32,12 +32,13 @@ from .kernels.pivlu import lu_factor, lu_solve, lu_solve_h
 
 
 class LayerOps:
-    """P and Q of a layer for a batch of solves: e = [E_xx, E_yy] [b, 2, N, N], einv [b, N, N], kx, ky [b, N].  Without a graph by structure; under autograd dense, because the graph of the
+    """P and Q of a layer for a batch of solves: e = [E_xx, E_yy] [b, 2, N, N] or [E_xx, E_yy, E_xy = E_yx], einv [b, N, N], kx, ky [b, N].  Without a graph by structure; under autograd dense, because the graph of the
     products by structure would hold far more."""
 
     def __init__(self, e, einv, kx, ky):
         self.e, self.einv = e, einv
         self.exx, self.eyy = e[:, 0], e[:, 1]
+        self.exy = e[:, 2] if e.shape[1] == 3 else None
         self.kx, self.ky = kx.real, ky.real                            # the transverse wave vector is real
         self.n = kx.shape[-1]
         self.fused = e.is_cuda and e.dtype == torch.complex64 and not torch.is_grad_enabled()
@@ -47,8 +48,23 @@ class LayerOps:
             kxr, kyr = self.kx[:, None, :], self.ky[:, None, :]
             eye = torch.eye(self.n, dtype=e.dtype, device=e.device).expand_as(einv)
             self.p = torch.cat((torch.cat((kxc * einv * kyr, eye - kxc * einv * kxr), -1), torch.cat((kyc * einv * kyr - eye, -kyc * einv * kxr), -1)), -2)
-            self.q = torch.cat((torch.cat((torch.diag_embed((-kx * ky).to(e.dtype)), torch.diag_embed((kx ** 2).to(e.dtype)) - self.eyy), -1),
-                                torch.cat((self.exx - torch.diag_embed((ky ** 2).to(e.dtype)), torch.diag_embed((ky * kx).to(e.dtype))), -1)), -2)
+            exy = self.exy if self.exy is not None else torch.zeros_like(self.exx)
+            self.q = torch.cat((torch.cat((torch.diag_embed((-kx * ky).to(e.dtype)) - exy, torch.diag_embed((kx ** 2).to(e.dtype)) - self.eyy), -1),
+                                torch.cat((self.exx - torch.diag_embed((ky ** 2).to(e.dtype)), torch.diag_embed((ky * kx).to(e.dtype)) + exy), -1)), -2)
+
+    def e_left(self, x1, x2):
+        """(E_yy x2 + E_yx x1, E_xx x1 + E_xy x2)."""
+        u1, u2 = self.eyy @ x2, self.exx @ x1
+        if self.exy is not None:
+            u1, u2 = torch.baddbmm(u1, self.exy, x1), torch.baddbmm(u2, self.exy, x2)
+        return u1, u2
+
+    def eh_left(self, x1, x2):
+        """(E_xx^H x2 - E_yx^H x1, E_yy^H x1 - E_xy^H x2)."""
+        u1, u2 = self.exx_h @ x2, self.eyy_h @ x1
+        if self.exy is not None:
+            u1, u2 = torch.baddbmm(u1, self.exy_h, x1, alpha=-1.0), torch.baddbmm(u2, self.exy_h, x2, alpha=-1.0)
+        return u1, u2
 
     def q_left(self, x):
         """Q @ x."""
@@ -59,10 +75,11 @@ class LayerOps:
         if self.fused:
             w = S.proj_rows(x, self.ky, -self.kx)
             one = torch.ones(x.shape[0], dtype=x.dtype, device=x.device)
-            return S.lift_rows(w, self.eyy @ x2, self.exx @ x1, -self.kx, -self.ky, one, -1, 1, n * x.shape[2])
+            return S.lift_rows(w, *self.e_left(x1, x2), -self.kx, -self.ky, one, -1, 1, n * x.shape[2])
         kx, ky = self.kx[:, :, None], self.ky[:, :, None]
         w = ky * x1 - kx * x2
-        return torch.cat((-kx * w - self.eyy @ x2, -ky * w + self.exx @ x1), 1)
+        u1, u2 = self.e_left(x1, x2)
+        return torch.cat((-kx * w - u1, -ky * w + u2), 1)
 
     def p_right(self, x):
         """x @ P."""
@@ -78,15 +95,21 @@ class LayerOps:
         return torch.cat((z * ky - x2, x1 - z * kx), 2)
 
     def pq(self):
-        """A = P Q = diag(E_xx, E_yy) - [[ky^2, -kx ky], [-kx ky, kx^2]] - K_L E^-1 [kx E_xx, ky E_yy], since K_R K_L = 0."""
+        """A = P Q = [[E_xx, E_xy], [E_yx, E_yy]] - [[ky^2, -kx ky], [-kx ky, kx^2]] - K_L E^-1 [kx E_xx + ky E_yx, kx E_xy + ky E_yy], since K_R K_L = 0."""
         if self.p is not None:
             return self.p @ self.q
         n, kx, ky = self.n, self.kx, self.ky
         kxc, kyc = kx[:, :, None], ky[:, :, None]
-        m = torch.cat((self.einv @ (kxc * self.exx), self.einv @ (kyc * self.eyy)), 2)     # [b, N, 2N]
+        m1, m2 = kxc * self.exx, kyc * self.eyy
+        if self.exy is not None:
+            m1, m2 = m1 + kyc * self.exy, m2 + kxc * self.exy
+        m = torch.cat((self.einv @ m1, self.einv @ m2), 2)               # [b, N, 2N]
         a = torch.cat((-kxc * m, -kyc * m), 1)
         a[:, :n, :n] += self.exx
         a[:, n:, n:] += self.eyy
+        if self.exy is not None:
+            a[:, :n, n:] += self.exy
+            a[:, n:, :n] += self.exy
         d = a.diagonal(dim1=1, dim2=2)
         d[:, :n] -= ky * ky
         d[:, n:] -= kx * kx
@@ -306,7 +329,8 @@ def _layer_gradient(seg, e_pl, h_pl, a_pl, b_pl, g_e, g_einv, cfg):
     cols = e_pl[0].shape[-1]
     ee, hh, aa, bb = torch.cat(e_pl, -1), torch.cat(h_pl, -1), torch.cat(a_pl, -1), torch.cat(b_pl, -1)
     es, wh, bs, wa = [ee], [], [bb], []
-    einv_h, exx_h, eyy_h = ops.einv.mH, ops.exx.mH, ops.eyy.mH
+    einv_h, ops.exx_h, ops.eyy_h = ops.einv.mH, ops.exx.mH, ops.eyy.mH
+    ops.exy_h = ops.exy.mH if ops.exy is not None else None
     kx, ky = ops.kx, ops.ky
     if ops.fused:
         per = 2 * n * ee.shape[2]
@@ -318,11 +342,11 @@ def _layer_gradient(seg, e_pl, h_pl, a_pl, b_pl, g_e, g_einv, cfg):
                 break
             s = (sigma / (j + 1)).reshape(-1)
             new_e = S.lift_rows(ops.einv @ w_h, hh[:, n:], hh[:, :n], kx, ky, s, 1, -1, per)
-            hh = S.lift_rows(S.proj_rows(ee, ky, -kx), ops.eyy @ ee[:, n:], ops.exx @ ee[:, :n], -kx, -ky, s, -1, 1, per // 2)
+            hh = S.lift_rows(S.proj_rows(ee, ky, -kx), *ops.e_left(ee[:, :n], ee[:, n:]), -kx, -ky, s, -1, 1, per // 2)
             ee = new_e
             es.append(ee)
             new_b = S.lift_rows(einv_h @ w_a, aa[:, n:], aa[:, :n], ky, -kx, s, -1, 1, per)
-            aa = S.lift_rows(S.proj_rows(bb, kx, ky), exx_h @ bb[:, n:], eyy_h @ bb[:, :n], -ky, kx, s, 1, -1, per // 2)
+            aa = S.lift_rows(S.proj_rows(bb, kx, ky), *ops.eh_left(bb[:, :n], bb[:, n:]), -ky, kx, s, 1, -1, per // 2)
             bb = new_b
             bs.append(bb)
     else:
@@ -341,14 +365,16 @@ def _layer_gradient(seg, e_pl, h_pl, a_pl, b_pl, g_e, g_einv, cfg):
             new_e = s * torch.cat((kxc * z + h2, kyc * z - h1), 1)     # (i w t h / 2)^j / j! e_j
             e1, e2 = ee[:, :n], ee[:, n:]
             w_e = kyc * e1 - kxc * e2
-            hh = s * torch.cat((-kxc * w_e - ops.eyy @ e2, -kyc * w_e + ops.exx @ e1), 1)
+            u1, u2 = ops.e_left(e1, e2)
+            hh = s * torch.cat((-kxc * w_e - u1, -kyc * w_e + u2), 1)
             ee = new_e
             es.append(ee)
             z = einv_h @ w_a
             new_b = s * torch.cat((kyc * z - a2, a1 - kxc * z), 1)
             b1, b2 = bb[:, :n], bb[:, n:]
             w_b = kxc * b1 + kyc * b2
-            aa = s * torch.cat((-kyc * w_b + exx_h @ b2, kxc * w_b - eyy_h @ b1), 1)
+            u1, u2 = ops.eh_left(b1, b2)
+            aa = s * torch.cat((-kyc * w_b + u1, kxc * w_b - u2), 1)
             bb = new_b
             bs.append(bb)
     powers = torch.as_tensor(np.stack([t_nodes ** j for j in range(order + 1)], 1), dtype=dt, device=ops.e.device)     # [q, J]
@@ -365,7 +391,11 @@ def _layer_gradient(seg, e_pl, h_pl, a_pl, b_pl, g_e, g_einv, cfg):
     factor = (-1j * seg.omega.to(dt))[:, None, None] * seg.h
     g_einv.index_add_(0, seg.rows, factor * ((wn_a * w) @ wn_h.mH))
     b1, b2, e1, e2 = bn[:, :n], bn[:, n:], en[:, :n], en[:, n:]
-    g_e.index_add_(0, seg.rows, factor[:, None] * torch.stack(((b2 * w) @ e1.mH, -((b1 * w) @ e2.mH)), 1))
+    bw1, bw2 = b1 * w, b2 * w
+    parts = [bw2 @ e1.mH, -(bw1 @ e2.mH)]
+    if ops.exy is not None:
+        parts.append(torch.baddbmm(bw2 @ e2.mH, bw1, e1.mH, alpha=-1.0))
+    g_e.index_add_(0, seg.rows, factor[:, None] * torch.stack(parts, 1))
 
 
 def _block_planes(seg, a_t, b_t, a_b, b_b, p_t, q_t, p_b, q_b):
@@ -402,7 +432,7 @@ def _block_planes(seg, a_t, b_t, a_b, b_b, p_t, q_t, p_b, q_b):
 
 
 def adjoint_gradient(state, g_out, g_top, e_all, einv_all, cfg):
-    """Gradients with respect to [E_xx, E_yy] and E^-1 of each row, for dJ = Re tr(g_out^H d(field below) + g_top^H d(field on top))."""
+    """Gradients with respect to [E_xx, E_yy(, E_xy)] and E^-1 of each row, for dJ = Re tr(g_out^H d(field below) + g_top^H d(field on top))."""
     segs = state.segs
     g_e, g_einv = torch.zeros_like(e_all), torch.zeros_like(einv_all)
     # forward field on the ends of the layers, and c = a + Y^H b from the bottom up
@@ -480,7 +510,7 @@ def adjoint_gradient(state, g_out, g_top, e_all, einv_all, cfg):
 
 
 class StackSolve(torch.autograd.Function):
-    """Field below and on top of a stack as a function of [E_xx, E_yy] and E^-1 of each row, with the backward :func:`adjoint_gradient`."""
+    """Field below and on top of a stack as a function of [E_xx, E_yy(, E_xy)] and E^-1 of each row, with the backward :func:`adjoint_gradient`."""
 
     @staticmethod
     def forward(ctx, e_all, einv_all, fwd, layers, keep):
