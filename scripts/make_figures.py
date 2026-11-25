@@ -49,7 +49,7 @@ T = json.loads((RES / "rtx5090_torcwa.json").read_text())
 STAGES = json.loads((RES / "rtx5090_stages.json").read_text())
 BASE_S = S["s4_cpu"]["value_s_12_processes"]
 TORCWA_S = min(v["value_grad_s"] for v in T["value_grad"].values() if isinstance(v, dict))
-THIS_S = T["this_work"]["default"]["value_grad_s"]
+THIS_S = R["one_layer"]["grey"]["default"]["value_grad_s"]
 TML = R["stack_2um"]
 
 

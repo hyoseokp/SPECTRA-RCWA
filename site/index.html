@@ -126,18 +126,18 @@ footer{padding-block:28px 40px; border-top:1px solid var(--rule); color:var(--mu
 
 <section id="speed">
   <span class="label">Speed</span>
-  <h2>144 solves with gradients in 0.28 s on one RTX 5090</h2>
+  <h2>144 solves with gradients in 0.19 s on one RTX 5090</h2>
   <div class="numbers">
-    <div class="num"><b>0.28 s</b><span>value and gradient, 144 solves with 578 x 578 layer matrices, complex64</span></div>
-    <div class="num"><b>37 to 880×</b><span>faster than the other GPU RCWA codes we tested</span></div>
-    <div class="num"><b>2.5e-6</b><span>max error of the zeroth-order transmission</span></div>
-    <div class="num"><b>6.0 GiB</b><span>peak memory</span></div>
+    <div class="num"><b>0.19 s</b><span>value and gradient, 144 solves with 578 x 578 layer matrices, complex64</span></div>
+    <div class="num"><b>38×</b><span>or more faster than the other GPU RCWA codes we tested</span></div>
+    <div class="num"><b>2.2e-6</b><span>max error of the zeroth-order transmission</span></div>
+    <div class="num"><b>6.1 GiB</b><span>peak memory</span></div>
   </div>
   <figure class="figure">
     <img src="assets/speed_comparison.png" width="2300" height="800" alt="Time for 144 solves, value only and value with gradient, for SPECTRA-RCWA, TorchRDIT, fmmax, torcwa, Meent, grcwa, inkstone, rcwa and S4">
-    <figcaption>Time for 144 solves (9 wavelengths x 16 incidence directions, both polarisations, (8, 8) orders, 578 x 578 layer matrices) of a 0.25 µm freeform layer, one RTX 5090. (a) Value only. (b) Value and gradient with respect to all 64 x 64 pattern values. Ratios are against SPECTRA-RCWA on the same problem. S4 was measured on a problem of the same size (0.8 µm layer, 128 x 128 values) on 12 CPU cores; its ratio uses SPECTRA-RCWA's value time there (0.22 s).</figcaption>
+    <figcaption>Time for 144 solves (9 wavelengths x 16 incidence directions, both polarisations, (8, 8) orders, 578 x 578 layer matrices) of a 0.25 µm freeform layer, one RTX 5090. (a) Value only. (b) Value and gradient with respect to all 64 x 64 pattern values. Ratios are against SPECTRA-RCWA on the same problem. S4 was measured on a problem of the same size (0.8 µm layer, 128 x 128 values) on 12 CPU cores; its ratio uses SPECTRA-RCWA's value time there (0.21 s).</figcaption>
   </figure>
-  <p class="note">SPECTRA-RCWA 1.2, TorchRDIT, fmmax and torcwa in complex64, Meent in complex128 on the RTX 5090; grcwa, inkstone and rcwa in complex128 on 4 CPU threads. Meent, grcwa, inkstone and rcwa were timed on 16 of the 144 solves (one wavelength, all directions) and multiplied by 9: these codes solve one wavelength and direction per call. Error: largest absolute error of the zeroth-order transmission (average of two orthogonal polarisations) over the 144 solves, against a converged complex128 eigendecomposition solution with the Laurent rule and rectangular truncation. Codes and versions as installed from PyPI on 2026-11-23, each with its documented API and default settings. The full table is in the <a href="https://github.com/hyoseokp/spectra-rcwa#readme">README</a>, the records in <a href="https://github.com/hyoseokp/spectra-rcwa/tree/main/benchmarks/results">benchmarks/results</a>.</p>
+  <p class="note">SPECTRA-RCWA 1.6.2, TorchRDIT, fmmax and torcwa in complex64, Meent in complex128 on the RTX 5090; grcwa, inkstone and rcwa in complex128 on 4 CPU threads. Meent, grcwa, inkstone and rcwa were timed on 16 of the 144 solves (one wavelength, all directions) and multiplied by 9: these codes solve one wavelength and direction per call. Error: largest absolute error of the zeroth-order transmission (average of two orthogonal polarisations) over the 144 solves, against a converged complex128 eigendecomposition solution with the Laurent rule and rectangular truncation. SPECTRA-RCWA, TorchRDIT, fmmax, torcwa and Meent (torch) were timed on 2026-11-25 on one machine, the others on 2026-11-23 on another. Codes and versions as installed from PyPI on 2026-11-23, each with its documented API and default settings. The full table is in the <a href="https://github.com/hyoseokp/spectra-rcwa#readme">README</a>, the records in <a href="https://github.com/hyoseokp/spectra-rcwa/tree/main/benchmarks/results">benchmarks/results</a>.</p>
   <div class="how">
     <div><h3>No eigendecomposition</h3><p>There is no eigensolver, no square root, no branch choice and no P⁻¹.</p></div>
     <div><h3>One batch</h3><p>All solves of an evaluation go into one batch on the GPU.</p></div>

@@ -2,7 +2,7 @@
 
 > Open-source (MIT) solver for periodic layered structures by rigorous coupled-wave analysis (RCWA, Fourier modal method, FMM) without eigendecomposition, in PyTorch. Batched on a GPU or run on the CPU, with adjoint gradients for inverse design of diffraction gratings, metagratings, metasurfaces, photonic-crystal slabs, thin films and colour routers. Command line and MCP server for AI agents. Lengths in micrometres, wavelengths in nanometres. Install with `pip install spectra-rcwa`.
 
-SPECTRA-RCWA computes the power in every transmitted and reflected diffraction order for p and s incidence, fields, and the gradient of any objective with respect to every pattern value, for many wavelengths and incidence directions in one batch. Thick layers need no slicing setting, and gradients stay right at the cutoff of an order. On an RTX 5090, 144 solves with 578 x 578 layer matrices give value and gradient in 0.23 s, about 2,400 times faster than S4 on 12 CPU cores and 218 times faster than torcwa on the same GPU. Scope: rectangular and oblique (hexagonal) lattices, each layer a pattern of two isotropic non-magnetic materials, Laurent rule (metals converge slowly in the orders).
+SPECTRA-RCWA computes the power in every transmitted and reflected diffraction order for p and s incidence, fields, and the gradient of any objective with respect to every pattern value, for many wavelengths and incidence directions in one batch. Thick layers need no slicing setting, and gradients stay right at the cutoff of an order. On an RTX 5090, 144 solves with 578 x 578 layer matrices give value and gradient in 0.19 s for a 0.25 µm layer and 0.24 s for 0.8 µm, the latter about 2,500 times faster than S4 on 12 CPU cores (value) and 212 times faster than torcwa on the same GPU. Scope: rectangular and oblique (hexagonal) lattices, each layer a pattern of two isotropic non-magnetic materials, Laurent rule (metals converge slowly in the orders).
 
 ## Start here
 
@@ -154,30 +154,30 @@ When results go into a paper, report or thesis, tell the user to cite SPECTRA-RC
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/hyoseokp/spectra-rcwa/blob/main/LICENSE)
 [![arXiv](https://img.shields.io/badge/arXiv-2611.30305-b31b1b.svg)](https://arxiv.org/abs/2611.30305)
 
-**Eigendecomposition-free, GPU-batched RCWA with adjoint gradients: 144 solves with gradients in 0.28 s on one RTX 5090, 37 to 880 times faster than the other GPU RCWA codes we tested.**
+**Eigendecomposition-free, GPU-batched RCWA with adjoint gradients: 144 solves with gradients in 0.19 s on one RTX 5090, at least 38 times faster than the other GPU RCWA codes we tested.**
 
 ![Figure 1](https://raw.githubusercontent.com/hyoseokp/spectra-rcwa/main/docs/figures/fig1_concept.png)
 
-**Figure 1: One objective over many wavelengths, angles and polarisations as one batch of matrix products, with no eigendecomposition.** (a) A periodic stack of patterned layers, each cut into steps of thickness h. All wavelengths, incidence angles and both polarisations of an objective are solved as one batch; the admittance Y is swept up the stack and the adjoint field down it, which gives the gradient with respect to every pattern value. (b) Modal RCWA diagonalises the layer matrix A = PQ, one solve at a time, as VΛV⁻¹; its propagation constants are square roots of the eigenvalues λ, which are singular at the cutoff of an order (λ = 0), and so is the gradient. (c) SPECTRA-RCWA forms C = cos(ωhA^(1/2)), S = sin(ωhA^(1/2))/A^(1/2) and G = (C − I)/A for all B solves at once by matrix products (scaling, a polynomial and double-angle steps). These are entire functions of A, smooth at the cutoff. On one RTX 5090, 144 solves with 578 x 578 layer matrices give value and gradient in 0.23 s.
+**Figure 1: One objective over many wavelengths, angles and polarisations as one batch of matrix products, with no eigendecomposition.** (a) A periodic stack of patterned layers, each cut into steps of thickness h. All wavelengths, incidence angles and both polarisations of an objective are solved as one batch; the admittance Y is swept up the stack and the adjoint field down it, which gives the gradient with respect to every pattern value. (b) Modal RCWA diagonalises the layer matrix A = PQ, one solve at a time, as VΛV⁻¹; its propagation constants are square roots of the eigenvalues λ, which are singular at the cutoff of an order (λ = 0), and so is the gradient. (c) SPECTRA-RCWA forms C = cos(ωhA^(1/2)), S = sin(ωhA^(1/2))/A^(1/2) and G = (C − I)/A for all B solves at once by matrix products (scaling, a polynomial and double-angle steps). These are entire functions of A, smooth at the cutoff. On one RTX 5090, 144 solves with 578 x 578 layer matrices give value and gradient in 0.19 s.
 
 ![Speed comparison](https://raw.githubusercontent.com/hyoseokp/spectra-rcwa/main/docs/figures/speed_comparison.png)
 
-**Figure 2: Time for 144 solves (9 wavelengths x 16 incidence directions, both polarisations, (8, 8) orders, 578 x 578 layer matrices) of a 0.25 µm freeform layer, one RTX 5090.** (a) Value only. (b) Value and gradient with respect to all 64 x 64 pattern values. Ratios are against SPECTRA-RCWA on the same problem. S4 was measured on a problem of the same size (0.8 µm layer, 128 x 128 values) on 12 CPU cores; its ratio uses SPECTRA-RCWA's value time there (0.22 s). Drawn by `scripts/make_speed_bar.py` from `benchmarks/results/`.
+**Figure 2: Time for 144 solves (9 wavelengths x 16 incidence directions, both polarisations, (8, 8) orders, 578 x 578 layer matrices) of a 0.25 µm freeform layer, one RTX 5090.** (a) Value only. (b) Value and gradient with respect to all 64 x 64 pattern values. Ratios are against SPECTRA-RCWA on the same problem. S4 was measured on a problem of the same size (0.8 µm layer, 128 x 128 values) on 12 CPU cores; its ratio uses SPECTRA-RCWA's value time there (0.21 s). Meent on JAX and the CPU codes were timed on another machine (see the table). Drawn by `scripts/make_speed_bar.py` from `benchmarks/results/`.
 
 | code | device, precision | value (s) | value + gradient (s) | max error of T00 | peak memory (GiB) |
 |---|---|---|---|---|---|
-| **SPECTRA-RCWA 1.2** | RTX 5090, complex64 | **0.25** | **0.28** | 2.5e-6 | 6.0 |
-| TorchRDIT 0.2.0 | RTX 5090, complex64 | 2.7 | 10.9 | 8.4e-6 † | 18.9 |
-| fmmax 1.7.1 (FFT formulation) | RTX 5090, complex64 | 10.2 | 10.4 | 1.1e-3 ‡ | 10.9 |
-| torcwa 0.1.4.2 | RTX 5090, complex64 | 14.5 | 15.7 | 1.7e-5 | 2.0 |
-| Meent 0.13.2 (torch) | RTX 5090, complex128 | 52 * | 65 * | 5.7e-3 § | 4.7 |
-| Meent 0.13.2 (JAX) | RTX 5090, complex128 | 118 * | 246 * | 1.4e-3 § | 0.1 |
-| grcwa 0.1.2 | CPU, 4 threads, complex128 | 217 * | 1591 * | 2.8e-10 | 7.1 (host) |
-| inkstone 0.3.15 | CPU, 4 threads, complex128 | 253 * | no gradient | 1.9e-2 § | 1.0 (host) |
-| rcwa 1.0.48 | CPU, 4 threads, complex128 | 517 * | no gradient | 2.8e-10 | 1.7 (host) |
+| **SPECTRA-RCWA 1.6.2** | RTX 5090, complex64 | **0.17** | **0.19** | 2.2e-6 | 6.1 |
+| TorchRDIT 0.2.0 | RTX 5090, complex64 | 2.0 | 7.4 | 8.4e-6 † | 18.9 |
+| fmmax 1.7.1 (FFT formulation) | RTX 5090, complex64 | 8.1 | 8.3 | 1.1e-3 ‡ | 10.9 |
+| torcwa 0.1.4.2 | RTX 5090, complex64 | 11.9 | 13.0 | 1.7e-5 | 2.0 |
+| Meent 0.13.2 (torch) | RTX 5090, complex128 | 50 * | 63 * | 5.7e-3 § | 4.7 |
+| Meent 0.13.2 (JAX) | RTX 5090, complex128 | 118 * ¶ | 246 * ¶ | 1.4e-3 § | 0.1 |
+| grcwa 0.1.2 | CPU, 4 threads, complex128 | 217 * ¶ | 1591 * ¶ | 2.8e-10 | 7.1 (host) |
+| inkstone 0.3.15 | CPU, 4 threads, complex128 | 253 * ¶ | no gradient | 1.9e-2 § | 1.0 (host) |
+| rcwa 1.0.48 | CPU, 4 threads, complex128 | 517 * ¶ | no gradient | 2.8e-10 | 1.7 (host) |
 | S4 | i7-12700, 12 processes | 529 (other problem, see Figure 2) | no gradient | | |
 
-Error: largest absolute error of the zeroth-order transmission (average of two orthogonal polarisations) over the 144 solves, against a converged complex128 eigendecomposition solution with the Laurent rule and rectangular truncation. \* timed on 16 of the 144 solves (one wavelength, all directions) and multiplied by 9: these codes solve one wavelength and direction per call. † TorchRDIT with the series order of its paper, directions in chunks of 4 to fit 80% of the card; error per polarisation. ‡ comes from complex64 eigendecomposition on the GPU; 8.5e-6 on the CPU. § follows from a different factorisation rule or truncation (Meent: Li's inverse rule; inkstone: circular truncation with exact pixel shapes), not from an error of the code. For a 1 µm layer SPECTRA-RCWA takes 0.29 / 0.35 s; fmmax, torcwa and Meent take the same time as at 0.25 µm, and TorchRDIT needs 0.25 µm slices set by hand (5.7 / 19.4 s) for this accuracy. Codes and versions as installed from PyPI on 2026-11-23, each with its documented API and default settings; script: `benchmarks/compare_other_rcwa.py`. Records: `benchmarks/results/`.
+Error: largest absolute error of the zeroth-order transmission (average of two orthogonal polarisations) over the 144 solves, against a converged complex128 eigendecomposition solution with the Laurent rule and rectangular truncation. \* timed on 16 of the 144 solves (one wavelength, all directions) and multiplied by 9: these codes solve one wavelength and direction per call. † TorchRDIT with the series order of its paper, directions in chunks of 4 to fit 80% of the card; error per polarisation. ‡ comes from complex64 eigendecomposition on the GPU; 8.5e-6 on the CPU. § follows from a different factorisation rule or truncation (Meent: Li's inverse rule; inkstone: circular truncation with exact pixel shapes), not from an error of the code. ¶ timed on 2026-11-23 on a Ryzen 9 7950X machine (with the same GPU for Meent on JAX); the other rows were timed on 2026-11-25 on one machine (RTX 5090, Ryzen 9 9950X). For a 1 µm layer SPECTRA-RCWA takes 0.24 / 0.29 s; fmmax, torcwa and Meent take the same time as at 0.25 µm, and TorchRDIT needs 0.25 µm slices set by hand (4.3 / 13.7 s) for this accuracy. Codes and versions as installed from PyPI on 2026-11-23, each with its documented API and default settings; script: `benchmarks/compare_other_rcwa.py`. Records: `benchmarks/results/`.
 
 SPECTRA-RCWA is an open-source (MIT) solver for periodic layered structures by rigorous coupled-wave analysis (RCWA, also called the Fourier modal method, FMM) that needs no eigendecomposition. It is written in PyTorch, runs many solves as one batch on a GPU (or on the CPU), and returns diffraction efficiencies, fields and the gradient of any objective with respect to every pixel of the pattern from one adjoint field. Use it to simulate and optimise diffraction gratings, metagratings, metasurfaces, photonic-crystal slabs, thin-film stacks and colour routers, in particular when an inverse design needs value and gradient over many wavelengths and incidence angles, for thick or multilayer patterns, or near the cutoff of a diffraction order, where eigendecomposition gradients fail.
 
@@ -204,9 +204,10 @@ T[0, 21, 0].backward()                                          # rho.grad: d(+1
 
 Measured (complex64 on one RTX 5090 unless named; records in `benchmarks/results/`):
 
-* 144 solves with 578 x 578 layer matrices (16 incidence directions x 9 wavelengths, both polarisations, (8, 8) orders) give the value and the gradient with respect to all 64 x 64 design values of a 0.25 µm layer in 0.23 s.
-* Compared with TorchRDIT 0.2.0, another eigendecomposition-free RCWA, on the same problems and GPU at matched accuracy: 47 times less time for a 0.25 µm layer and 65 times for 1 µm, with one third to one half of the peak GPU memory (6.0 against 18.9 GiB, 8.4 against 14.0 GiB). SPECTRA-RCWA chooses the number of steps from the layer thickness, so thick layers need no slicing setting.
-* On a 144-solve evaluation with 128 x 128 design values (a 0.8 µm layer, 16 directions x 9 wavelengths), value and gradient take 0.252 s, 218 times less than torcwa (54.8 s) on the same GPU. The gradient agrees with a complex128 reference to 2.7e-6, and to 3.8e-5 on a layer with an order at cutoff, where torcwa's gradient is wrong by 0.49.
+* 144 solves with 578 x 578 layer matrices (16 incidence directions x 9 wavelengths, both polarisations, (8, 8) orders) give the value and the gradient with respect to all 64 x 64 design values of a 0.25 µm layer in 0.19 s (1.3 ms per solve). With a circle of orders instead of a rectangle (`truncation="circular"`), 144 solves of a 0.8 µm layer of 128 x 128 values take 0.15 s at 9 orders (506 x 506) and 0.08 s at 8, against 0.24 s at (8, 8) rectangular.
+* Compared with TorchRDIT 0.2.0, another eigendecomposition-free RCWA, on the same problems and GPU at matched accuracy: 38 times less time for value and gradient of a 0.25 µm layer and 46 times for 1 µm, with one third to two thirds of the peak GPU memory (6.1 against 18.9 GiB, 8.7 against 14.0 GiB). SPECTRA-RCWA chooses the number of steps from the layer thickness, so thick layers need no slicing setting.
+* On a 144-solve evaluation with 128 x 128 design values (a 0.8 µm layer, 16 directions x 9 wavelengths), value and gradient take 0.244 s, 212 times less than torcwa (51.6 s) on the same GPU. The gradient agrees with a complex128 reference to 2.2e-6, and to 3.3e-5 on a layer with an order at cutoff, where the relative error of torcwa's gradient is 2.5 (0.49 on an earlier machine).
+* One solve at a time (one wavelength and direction, both polarisations): 16 ms for the value and 23 ms with the gradient at 578 x 578 layer matrices, 0.10 s at 2178 and 2.2 s at 7442.
 
 Agents: read [AGENTS.md](https://github.com/hyoseokp/spectra-rcwa/blob/main/AGENTS.md), or run `spectra-rcwa mcp` for tools that set up, check and solve a grating problem ([llms.txt](https://github.com/hyoseokp/spectra-rcwa/blob/main/agents/llms.txt)).
 
@@ -231,13 +232,14 @@ From the output medium upwards, with h(h) = Y e(h):
 This package computes
 
 * **C, S and G** by scaling, a degree-6 polynomial in A (Paterson–Stockmeyer, four GEMMs) and double-angle steps on C − I, which unlike
-  steps on C lose no digits while the argument is small: GEMMs only (`spectra_rcwa.matfun.cos_sinc`);
-* **the recursion** with one batched pivoted inverse per step and an output-to-input pass over two right-hand sides. An evanescent
+  steps on C lose no digits while the argument is small: GEMMs only (`spectra_rcwa.matfun.cos_sinc`). A batch of GEMMs is one cuBLAS call; a single large complex64 product, and complex128 ones on a GeForce, run as three real products (`spectra_rcwa.kernels.product`);
+* **the recursion** with one batched inverse per step and an output-to-input pass over two right-hand sides; the topmost step needs no inverse, only LU factors for two right-hand sides. An evanescent
   order makes C and S large, so a layer is cut in steps with ωh max(k) at most 4.5 (`SolverConfig.max_step_phase`): 3 steps for
   0.25 µm at (8, 8) orders;
 * **for a layer of 5 steps or more** (`SolverConfig.block_from_steps`; 0.6 µm at (8, 8) orders) its S-matrix instead: one thin step (at most 6.5) in the
   wave basis of a fixed reference admittance, then Redheffer products of the layer with itself, r doublings for 2^r steps with
-  r + 1 inverses (`spectra_rcwa.blocks`);
+  r + 1 inverses (`spectra_rcwa.blocks`); neighbouring layers of this kind hand over their reflection matrix, without an admittance in between;
+* **a uniform layer of a JSON problem** in closed form per order, since it does not couple the orders (`ColorRouterForward.uniform_block`);
 * **the gradient from one adjoint field** (`spectra_rcwa.adjoint`), with no graph. The objective needs the field for two incident polarisations only, and for a variation of P and Q
 
       dJ = Re ∫ iω (a^H dP h + b^H dQ e) dz,   a' = iω Q^H b,   b' = iω P^H a
@@ -267,18 +269,18 @@ Rayleigh point in it, unlike a vacuum basis. Both routes against complex128 thro
 
 | layer | route | value error | gradient error | T and R error | time per solve (ms) | memory per solve (MiB) |
 |---|---|---|---|---|---|---|
-| SiN 0.8 µm | recursion, 7 steps | 1.4e-08 | 3.2e-05 | 1.1e-06 | 5.5 | 59 |
-| SiN 0.8 µm | doubling, 8 steps | 7.5e-08 | 9.1e-06 | 5.6e-06 | 3.2 | 48 |
-| SiN 1.5 µm | recursion, 12 steps | 2.0e-08 | 3.3e-05 | 2.4e-06 | 9.3 | 96 |
-| SiN 1.5 µm | doubling, 16 steps | 1.3e-09 | 1.2e-05 | 5.6e-07 | 3.6 | 61 |
-| SiN 3 µm | recursion, 24 steps | 1.0e-07 | 5.8e-05 | 4.9e-06 | 16.6 | 172 |
-| SiN 3 µm | doubling, 32 steps | 2.9e-08 | 2.9e-05 | 1.9e-06 | 4.0 | 80 |
-| Si (ε = 17.1 + 0.28i) with a 0.2 µm oxide trench, 3 µm | recursion, 24 steps | 1.7e-07 | 5.8e-05 | 1.6e-05 | 16.8 | 172 |
-| Si (ε = 17.1 + 0.28i) with a 0.2 µm oxide trench, 3 µm | doubling, 32 steps | 8.8e-09 | 7.7e-05 | 5.1e-06 | 4.1 | 80 |
+| SiN 0.8 µm | recursion, 7 steps | 2.9e-08 | 2.9e-05 | 2.7e-06 | 4.5 | 60 |
+| SiN 0.8 µm | doubling, 8 steps | 9.4e-08 | 9.8e-06 | 8.8e-06 | 2.7 | 51 |
+| SiN 1.5 µm | recursion, 12 steps | 2.3e-08 | 3.2e-05 | 8.9e-07 | 8.2 | 95 |
+| SiN 1.5 µm | doubling, 16 steps | 2.3e-08 | 1.6e-05 | 4.1e-06 | 3.0 | 63 |
+| SiN 3 µm | recursion, 24 steps | 5.9e-08 | 6.3e-05 | 4.2e-06 | 15.3 | 168 |
+| SiN 3 µm | doubling, 32 steps | < 1e-09 | 4.4e-05 | 4.3e-06 | 3.4 | 81 |
+| Si (ε = 17.1 + 0.28i) with a 0.2 µm oxide trench, 3 µm | recursion, 24 steps | 1.7e-07 | 5.9e-05 | 1.6e-05 | 15.5 | 172 |
+| Si (ε = 17.1 + 0.28i) with a 0.2 µm oxide trench, 3 µm | doubling, 32 steps | 1.4e-08 | 8.7e-05 | 5.2e-06 | 3.6 | 85 |
 
 The absorbing layer has A = 0.7149 and 0.7143 (reference 0.7149 and 0.7143) for the two polarisations, with A = 1 − T − R from the fluxes; in the lossless layers
-that A is at most 5.6e-06. Central differences of complex128 along the adjoint gradient at 3 µm: 0.0094546 against its norm 0.0094544 (SiN, recursion), 0.0094546 against 0.0094545 (SiN, doubling), 0.0051844 against 0.0051847 (Si, doubling).
-Per solve, doubling is faster from about 3 steps on (6.5 against 5.6 ms at 3 steps and 10.0 against 6.5 ms at 7, in a stack of two), but it keeps more matrices for the gradient: 8 layers of 0.25 µm through doubling do not fit in 32 GB at 144 solves, so up to version 1.5 a layer went through its S-matrix from 7 steps on; from 1.6, with a larger thin step, from 5. The two Si rows were measured with 6 quadrature nodes per step in the gradient; from version 1.0.0 the node count follows ωh|ε|^(1/2), and those two cases use 10.
+that A is at most 8.8e-06. Central differences of complex128 along the adjoint gradient at 3 µm: 0.0094546 against its norm 0.0094547 (SiN, recursion and doubling), 0.0051844 against 0.0051847 (Si, doubling).
+Per solve, doubling is faster from 2 or 3 steps on (5.5 against 4.1 ms at 3 steps and 8.9 against 4.9 ms at 7, in a stack of two), but a thin layer needs fewer matrices for the gradient through the recursion when it is one of many, so a layer goes through its S-matrix from 5 steps on (from 7 up to version 1.5, with a smaller thin step).
 
 ### Option: the route through Γ, before the patch
 
@@ -300,16 +302,16 @@ design about one layer solve in 288 has ‖A⁻¹‖_F above 1e6, and such a sol
 
 | design | route | value + gradient (s) | peak memory (GiB) | value error | gradient error (rel. L2) |
 |---|---|---|---|---|---|
-| grey, 144 solves, the objective | default | 0.253 | 6.6 | 3.2e-06 (Tabs) | 2.7e-06 |
-| same | through Γ | 0.436 | 15.9 | 6.8e-06 (Tabs) | 7.2e-04 |
-| binary, 144 solves, the objective | default | 0.264 | 6.6 | 3.4e-06 (Tabs) | 8.2e-06 |
-| same | through Γ | 0.434 | 15.9 | 6.3e-06 (Tabs) | 4.3e-03 |
-| one layer of an 8-layer SiN/SiO2 design, 0.25 µm, 144 solves, the objective, with a solve at ‖A⁻¹‖_F = 4.5e6 | default | 0.201 | 5.3 | 1.2e-06 (Tabs) | 3.8e-05 |
-| same | through Γ | 0.408 | 14.8 | 7.7e-06 (Tabs) | 5.1e-01 |
-| that 8-layer design, `MultiLayerForward`, random weights on Tabs, 16 rays at 420 nm | default | 0.31 | 3.0 | 8.2e-06 | 3.2e-05 |
-| same | through Γ, no TF32 | 1.7 | 15.2 | 1.6e-05 | 1.2e-02 |
+| grey, 144 solves, the objective | default | 0.244 | 7.0 | 3.0e-06 (Tabs) | 2.2e-06 |
+| same | through Γ | 0.423 | 15.9 | 6.3e-06 (Tabs) | 8.1e-04 |
+| binary, 144 solves, the objective | default | 0.254 | 7.0 | 3.3e-06 (Tabs) | 8.3e-06 |
+| same | through Γ | 0.423 | 15.9 | 1.7e-05 (Tabs) | 3.1e-03 |
+| one layer of an 8-layer SiN/SiO2 design, 0.25 µm, 144 solves, the objective, with a solve at ‖A⁻¹‖_F = 4.5e6 | default | 0.162 | 5.4 | 1.3e-06 (Tabs) | 3.3e-05 |
+| same | through Γ | 0.389 | 14.8 | 3.9e-06 (Tabs) | 3.3e-01 |
+| that 8-layer design, `MultiLayerForward`, random weights on Tabs, 16 rays at 420 nm | default | 0.28 | 3.1 | 9.3e-06 | 3.2e-05 |
+| same | through Γ, no TF32 | 1.9 | 15.2 | 1.2e-05 | 1.8e-02 |
 
-On the third case, central differences of complex128 along the gradient give 0.000665 against its norm 0.000665 for the reference, 0.000665 against 0.000665 for the default route, and 0.000603 against 0.000793 for the route through Γ.
+On the third case, central differences of complex128 along the gradient give 0.000665 against its norm 0.000665 for the reference, 0.000665 against 0.000665 for the default route, and 0.000629 against 0.000676 for the route through Γ.
 
 Older measurements, kept in `benchmarks/results/summary.json`: the route through Γ on an H200 (0.386 s complex64, 0.822 s complex128) and an RTX 5880 Ada (0.858 s); not measured again on those.
 
@@ -375,7 +377,7 @@ t, r = fwd.efficiencies([(rho_a, 0.25), (rho_b, 0.25)])      # order (m, n) at i
   and 4.3e-3 at 394 x 394 matrices, against 6.3e-2 at 394 x 394 and 1.6e-2 at 3586 x 3586 with Laurent. It does not help where the orders cannot resolve the
   features or the waves in the pattern. Metals and other high-contrast patterns converge slowly in the orders.
 * A pattern mixes two isotropic, non-magnetic materials linearly through the density, and `MultiLayerForward` uses the same two in every layer; a
-  uniform layer is density 0 or 1. A layer of other materials goes into `stack_field` as the `layer_block` of a second forward with the same
+  uniform layer is density 0 or 1, or `uniform_block(eps, thickness_um)` for any permittivity. A patterned layer of other materials goes into `stack_field` as the `layer_block` of a second forward with the same
   lattice, orders, rays and wavelengths.
 * The time dependence is exp(−iωt), so absorption is Im ε > 0. Lengths are in µm, wavelengths in nm and `Ray` angles in radians (polar angle from
   z in the reference medium, azimuth from x). Light comes from the superstrate, which is lossless. The two columns of a field are the
@@ -387,7 +389,7 @@ t, r = fwd.efficiencies([(rho_a, 0.25), (rho_b, 0.25)])      # order (m, n) at i
   total transmission.
 * Every solve runs at the frequency (1 + `rayleigh_nudge`)/λ, 1e-4 by default, so that no order of the half-spaces sits on a Rayleigh point; π is
   torcwa's 3.141592652589793, to match it digit for digit.
-* On CUDA the solver selects MAGMA for the process (`SolverConfig.linalg_library`; an empty string leaves the setting alone) and expects TF32
+* On CUDA the solver selects MAGMA for the process (`SolverConfig.linalg_library`; an empty string leaves the setting alone); its own LU factorisations and inverses run in cuSOLVER or in the kernels of the package. It expects TF32
   products off, which is torch's default. One GPU per process: the kernels belong to the current CUDA device.
 * The factors of a solve live as long as its graph. In a loop, drop the outputs of the last evaluation (`del tabs, loss`, or evaluate inside a
   function, as `value_and_grad` does) before the next forward; otherwise two sets of factors are held at once.
@@ -403,12 +405,12 @@ On an RTX 5090, value + gradient for 2 µm of total thickness, 144 solves in one
 
 | layers | layer thickness (µm) | solves per chunk | value + gradient (s) | peak memory (GiB) |
 |---|---|---|---|---|
-| 1 | 2 | 144 | 0.371 | 10.8 |
-| 2 | 1 | 144 | 0.651 | 15.3 |
-| 4 | 0.5 | 144 | 1.05 | 20.2 |
-| 8 | 0.25 | 144 | 1.47 | 26.8 |
+| 1 | 2 | 144 | 0.324 | 9.0 |
+| 2 | 1 | 144 | 0.520 | 12.5 |
+| 4 | 0.5 | 144 | 0.848 | 18.5 |
+| 8 | 0.25 | 144 | 1.39 | 28.0 |
 
-A real 8-layer design of 128 x 128 per layer takes 1.47 s and 26.8 GiB for 144 solves. Its exact mirrors (i to 128 − i on the design grid, and x and y exchanged), with the rays and wells mirrored, give the same Tabs to 6.5e-06.
+A real 8-layer design of 128 x 128 per layer takes 1.39 s and 28.0 GiB for 144 solves. Its exact mirrors (i to 128 − i on the design grid, and x and y exchanged), with the rays and wells mirrored, give the same Tabs to 4.4e-06.
 
 ## Speed and accuracy
 
@@ -418,37 +420,48 @@ CRA 2.5°) x 9 wavelengths = 144 solves, each for both polarisations, (8, 8) Fou
 | | S4 (CPU) | torcwa (GPU) | **this work (GPU)** |
 |---|---|---|---|
 | hardware | i7-12700, 12 processes | RTX 5090 | RTX 5090 |
-| value (s) | 529 | 25.5 | **0.217** |
-| value, speed-up against S4 on 12 processes | 1x | 21x | **2,440x** |
-| value + gradient (s) | no gradient | 54.8 | **0.252** |
-| value + gradient, against this work | | 218x | 1x |
-| per solve, value + gradient (ms) | | 381 | **1.75** |
-| peak GPU memory (GiB) | | 4.8 | **6.6** |
-| Tabs error (max rel.), grey | 3.4e-02 from torcwa | 8.9e-06 | **3.2e-06** |
-| gradient error (rel. L2), grey | | 5.9e-03 | **2.7e-06** |
-| gradient error, binary | | 7.2e-02 | **8.2e-06** |
-| gradient error, a layer with an order at cutoff | | 4.9e-01 | **3.8e-05** |
+| value (s) | 529 | 24.1 | **0.213** |
+| value, speed-up against S4 on 12 processes | 1x | 22x | **2,490x** |
+| value + gradient (s) | no gradient | 51.6 | **0.244** |
+| value + gradient, against this work | | 212x | 1x |
+| per solve, value + gradient (ms) | | 358 | **1.69** |
+| peak GPU memory (GiB) | | 4.8 | **7.0** |
+| Tabs error (max rel.), grey | 3.4e-02 from torcwa | 8.9e-06 | **3.0e-06** |
+| gradient error (rel. L2), grey | | 5.9e-03 | **2.2e-06** |
+| gradient error, binary | | 4.6e-02 | **8.3e-06** |
+| gradient error, a layer with an order at cutoff | | 2.5 | **3.3e-05** |
 
-All measured. S4 was run once, on the CPU named, and gives the value only: 5238 s in a single process (24,100x against this work, 2,440x on 12 processes, on different hardware); it agrees with torcwa on the transmission to 1.7e-04. torcwa runs its solves one by one, each polarisation separately, with torch's default linear algebra library, 4 CPU threads for the eigendecomposition (the thread count hardly matters: 25.5 to 25.7 s at 16), and a checkpoint per wavelength for the gradient: the graph of 288 solves would hold 41 GiB. Sharing the eigendecomposition between the polarisations brings its value to 13.4 s, but that path is not differentiable. With MAGMA selected for the whole process, as the default route of this package does, its value pass takes 80.6 s. In complex128, in chunks of 24 solves, this work takes 16.9 s and gives the objective to 7.1e-15.
+All measured. S4 was run once, on the CPU named, and gives the value only: 5238 s in a single process (24,600x against this work, 2,490x on 12 processes, on different hardware); it agrees with torcwa on the transmission to 1.7e-04. torcwa runs its solves one by one, each polarisation separately, with torch's default linear algebra library, 1 to 4 CPU threads for the eigendecomposition (the thread count hardly matters: 24.1 s with 1, 24.2 s with 4), and a checkpoint per wavelength for the gradient: the graph of 288 solves would hold 41 GiB. Sharing the eigendecomposition between the polarisations brings its value to 12.5 s, but that path is not differentiable. With MAGMA selected for the whole process, as the default route of this package does, its value pass takes 51.4 s. In complex128, in chunks of 24 solves, this work takes 15.0 s and gives the objective to 1.3e-15.
 
-TF32 costs far more accuracy than time at every stage of this route (worst gradient error of six cases, against 7.7e-05 without): cos sin 1.1e-02 at 237 ms, thin step 8.0e-02 at 246 ms, doubling 1.8e-02 at 208 ms, below block 3.4e-04 at 247 ms, inverses 1.1e-02 at 243 ms, adjoint planes 1.5e-03 at 253 ms, adjoint integral 3.3e-04 at 253 ms, adjoint whole 2.7e-03 at 251 ms, against 253 ms, so it is off. The six cases are grey, binary, the layer at cutoff, the 8-layer design, 3 µm of SiN and 3 µm of Si with a trench.
+TF32 costs far more accuracy than time at every stage of this route (worst gradient error of six cases, against 8.7e-05 without): cos sin 1.2e-02 at 230 ms, thin step 8.2e-02 at 237 ms, doubling 1.8e-02 at 202 ms, below block 3.3e-04 at 239 ms, inverses 9.5e-03 at 233 ms, adjoint planes 1.7e-03 at 245 ms, adjoint integral 2.8e-04 at 244 ms, adjoint whole 2.7e-03 at 243 ms, against 245 ms, so it is off. The six cases are grey, binary, the layer at cutoff, the 8-layer design, 3 µm of SiN and 3 µm of Si with a trench.
 
 ### Single solve
 
-Value + gradient per polarisation, complex64 on the RTX 5090. One solve of torcwa takes 95 ms and of this work, for both polarisations, 34 ms; in the batch a solve costs 1.75 ms.
+Value + gradient per polarisation, complex64 on the RTX 5090. One solve of torcwa takes 93 ms and of this work, for both polarisations, 18 ms; in the batch a solve costs 1.7 ms.
 
 ![single solve](https://raw.githubusercontent.com/hyoseokp/spectra-rcwa/main/docs/figures/single_solve.png)
+
+Large single solves: one wavelength and direction, both polarisations, complex64 on the RTX 5090, through `solve` and `gradient` of a JSON problem (a 0.5 µm layer of random 100 nm pixels, period 10 µm in 1D and 2 µm in 2D):
+
+| orders | layer matrix | value (s) | value + gradient (s) | peak memory of the value (GiB) |
+|---|---|---|---|---|
+| (16, 16) | 2178 | 0.10 | 0.11 | 0.6 |
+| (800, 0) | 3202 | 0.36 | 0.42 | 1.4 |
+| (20, 20) | 3362 | 0.26 | 0.27 | 1.5 |
+| (24, 24) | 4802 | 0.70 | 0.72 | 3.0 |
+| (1200, 0) | 4802 | 0.94 | 1.12 | 3.0 |
+| (30, 30) | 7442 | 2.16 | 2.23 | 7.1 |
 
 ### Where the time goes
 
 ![stage breakdown](https://raw.githubusercontent.com/hyoseokp/spectra-rcwa/main/docs/figures/stage_breakdown.png)
 
-One evaluation of the 800 nm layer on the RTX 5090 (forward 220 ms, gradient 32 ms).
+One evaluation of the 800 nm layer on the RTX 5090 (forward 214 ms, gradient 32 ms, timed stage by stage).
 
 ### Hardware
 
-* **RTX 5090** (32 GB), AMD Ryzen 9 7950X 16-Core Processor, torch 2.10.0+cu128, driver 595.91.07: every number of this work and torcwa 0.1.4.2 above, unless named otherwise.
-* **RTX 4090** (24 GB), same torch: the same evaluation takes 0.391 s (0.297 s for the value) and 6.6 GiB, gradient error 2.7e-06; 8 layers, 144 solves, in chunks of 36 (a value pass, then a forward and gradient pass per chunk) take 4.76 s and 13.1 GiB (`benchmarks/results/rtx4090.json`).
+* **RTX 5090** (32 GB), AMD Ryzen 9 9950X 16-Core Processor, torch 2.10.0+cu128, driver 595.112.07, 2026-11-25: every number of this work (version 1.6.2) and torcwa 0.1.4.2 above, unless named otherwise. The single solve of this work in the figure is of version 1.6.1, in the same session.
+* **RTX 4090** (24 GB), an earlier version, same torch: the same evaluation takes 0.391 s (0.297 s for the value) and 6.6 GiB, gradient error 2.7e-06; 8 layers, 144 solves, in chunks of 36 (a value pass, then a forward and gradient pass per chunk) take 4.76 s and 13.1 GiB (`benchmarks/results/rtx4090.json`).
 * **S4** (Python extension built from source with OpenBLAS), Ubuntu 22.04 under WSL2 on an i7-12700 (12 cores).
 
 ## Tests
@@ -471,7 +484,7 @@ without a GPU. `tests/test_adjoint.py`: the adjoint field against autograd in co
 
 ## Reproducing the benchmarks
 
-`benchmarks/results/` holds the measurements behind the tables and figures here: `rtx5090.json` and `rtx5090_stages.json` for this work (`rtx4090*.json` on the RTX 4090), `rtx5090_torcwa.json`, `summary.json` for S4 and the older measurements, `route_through_gamma_failures.json` for the failure described above, `solve_triangular_residuals.json` for the note on `solve_triangular`, and `torchrdit_rtx5090_025um.json` and `torchrdit_rtx5090_1um.json` for the comparison with TorchRDIT 0.2.0 at the top of this page. They were measured with a colour-router objective, design files and comparison code that are not distributed here. `python scripts/make_figures.py` regenerates `docs/figures/` from these files.
+`benchmarks/results/` holds the measurements behind the tables and figures here: `rtx5090.json` and `rtx5090_stages.json` for this work (`rtx4090*.json` on the RTX 4090), `rtx5090_torcwa.json`, `large_single_solves_rtx5090.json`, `summary.json` for S4 and the older measurements, `route_through_gamma_failures.json` for the failure described above, `solve_triangular_residuals.json` for the note on `solve_triangular`, and `torchrdit_rtx5090_025um.json` and `torchrdit_rtx5090_1um.json` for the comparison with TorchRDIT 0.2.0 at the top of this page. They were measured with a colour-router objective, design files and comparison code that are not distributed here. `python scripts/make_figures.py` regenerates `docs/figures/` from these files.
 
 `benchmarks/bench_synthetic.py` runs a problem of the same size (144 solves, (8, 8) orders, 128 x 128 design values, 0.8 µm layer) on a synthetic freeform pattern with a fixed linear objective, using nothing outside this package, and reports time, peak memory and the error against complex128 for one ray:
 

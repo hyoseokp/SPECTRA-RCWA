@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 R, OUT = ROOT / "benchmarks" / "results", ROOT / "docs" / "figures"
 rows = [r for r in json.loads((R / "other_rcwa_rtx5090.json").read_text(encoding="utf8")) if r["thickness_um"] == 0.25]
 summary = json.loads((R / "summary.json").read_text(encoding="utf8"))["s4_cpu"]
-cr = json.loads((R / "rtx5090_torcwa.json").read_text(encoding="utf8"))["this_work"]["default"]
+cr = json.loads((R / "rtx5090.json").read_text(encoding="utf8"))["one_layer"]["grey"]["default"]
 
 LABEL = {"spectra": "SPECTRA-RCWA", "torchrdit": "TorchRDIT", "fmmax": "fmmax", "torcwa": "torcwa", "meent_torch": "Meent (torch)",
          "meent_jax": "Meent (JAX)", "grcwa": "grcwa (CPU)", "inkstone": "inkstone (CPU)", "rcwa": "rcwa (CPU)"}

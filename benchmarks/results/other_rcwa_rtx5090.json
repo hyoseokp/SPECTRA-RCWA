@@ -3,39 +3,41 @@
   "code": "spectra",
   "name": "SPECTRA-RCWA",
   "thickness_um": 0.25,
-  "version": "1.1.1",
+  "version": "1.6.2",
   "device": "RTX 5090",
   "precision": "complex64",
   "gradient": "adjoint field (closed form)",
-  "value_s": 0.2530762548558414,
-  "value_grad_s": 0.27812880789861083,
+  "value_s": 0.17387700697872788,
+  "value_grad_s": 0.19360876095015556,
   "extrapolated_from_solves": null,
-  "value_error": 2.5376957866196648e-06,
-  "gradient_error": 4.989885262115652e-07,
+  "value_error": 2.2135166025671893e-06,
+  "gradient_error": 4.780843794845462e-07,
   "error_source": "pod, 144 solves",
-  "peak_gpu_gib": 5.977802753448486,
-  "peak_host_gib": 1.5068702697753906,
+  "peak_gpu_gib": 6.069920539855957,
+  "peak_host_gib": 1.5395622253417969,
   "formulation": "Laurent (E, E^-1), FFT of samples, rectangular truncation",
-  "first_call_s": 2.6650803009979427
+  "first_call_s": 2.0684796839486808,
+  "machine": "Ryzen 9 9950X, driver 595.112.07, 2026-11-25"
  },
  {
   "code": "spectra",
   "name": "SPECTRA-RCWA",
   "thickness_um": 1.0,
-  "version": "1.1.1",
+  "version": "1.6.2",
   "device": "RTX 5090",
   "precision": "complex64",
   "gradient": "adjoint field (closed form)",
-  "value_s": 0.2931215362623334,
-  "value_grad_s": 0.3496188810095191,
+  "value_s": 0.2430474329739809,
+  "value_grad_s": 0.29460565804038197,
   "extrapolated_from_solves": null,
-  "value_error": 2.6615387903050625e-06,
-  "gradient_error": 2.4045355507067766e-06,
+  "value_error": 3.4811026559666836e-06,
+  "gradient_error": 2.8609274055380775e-06,
   "error_source": "pod, 144 solves",
-  "peak_gpu_gib": 8.425515174865723,
-  "peak_host_gib": 1.5061073303222656,
+  "peak_gpu_gib": 8.731500625610352,
+  "peak_host_gib": 1.5748519897460938,
   "formulation": "Laurent (E, E^-1), FFT of samples, rectangular truncation",
-  "first_call_s": 2.3926752898842096
+  "first_call_s": 2.1112630220595747,
+  "machine": "Ryzen 9 9950X, driver 595.112.07, 2026-11-25"
  },
  {
   "code": "fmmax",
@@ -45,16 +47,17 @@
   "device": "RTX 5090",
   "precision": "complex64",
   "gradient": "jax autodiff, custom eig VJP",
-  "value_s": 10.164719644933939,
-  "value_grad_s": 10.383970382623374,
+  "value_s": 8.083190024015494,
+  "value_grad_s": 8.347691811039113,
   "extrapolated_from_solves": null,
   "value_error": 0.0010766999819006307,
-  "gradient_error": 0.023597357676176732,
+  "gradient_error": 0.02359725671946208,
   "error_source": "pod, 144 solves",
   "peak_gpu_gib": 10.945505619049072,
-  "peak_host_gib": 2.310291290283203,
+  "peak_host_gib": 2.3377685546875,
   "formulation": "Formulation.FFT, parallelogramic truncation (289 terms)",
-  "first_call_s": 12.097217386122793
+  "first_call_s": 9.696019491064362,
+  "machine": "Ryzen 9 9950X, driver 595.112.07, 2026-11-25"
  },
  {
   "code": "fmmax",
@@ -64,16 +67,17 @@
   "device": "RTX 5090",
   "precision": "complex64",
   "gradient": "jax autodiff, custom eig VJP",
-  "value_s": 10.170696954708546,
-  "value_grad_s": 10.383677930105478,
+  "value_s": 8.011882787919603,
+  "value_grad_s": 8.247667706920765,
   "extrapolated_from_solves": null,
   "value_error": 0.0012279234622638302,
-  "gradient_error": 0.016176240402278157,
+  "gradient_error": 0.016176228822749498,
   "error_source": "pod, 144 solves",
   "peak_gpu_gib": 10.945505619049072,
-  "peak_host_gib": 2.313709259033203,
+  "peak_host_gib": 2.360626220703125,
   "formulation": "Formulation.FFT, parallelogramic truncation (289 terms)",
-  "first_call_s": 12.12150956178084
+  "first_call_s": 9.693827509996481,
+  "machine": "Ryzen 9 9950X, driver 595.112.07, 2026-11-25"
  },
  {
   "code": "fmmax_jones",
@@ -92,7 +96,8 @@
   "peak_gpu_gib": 10.956745147705078,
   "peak_host_gib": 2.3888816833496094,
   "formulation": "Formulation.JONES_DIRECT_FOURIER, parallelogramic truncation (289 terms)",
-  "first_call_s": 13.724876270163804
+  "first_call_s": 13.724876270163804,
+  "machine": "Ryzen 9 7950X, 2026-11-23"
  },
  {
   "code": "fmmax_jones",
@@ -111,7 +116,8 @@
   "peak_gpu_gib": 10.956745147705078,
   "peak_host_gib": 2.3859214782714844,
   "formulation": "Formulation.JONES_DIRECT_FOURIER, parallelogramic truncation (289 terms)",
-  "first_call_s": 13.516073412727565
+  "first_call_s": 13.516073412727565,
+  "machine": "Ryzen 9 7950X, 2026-11-23"
  },
  {
   "code": "torcwa",
@@ -121,16 +127,17 @@
   "device": "RTX 5090",
   "precision": "complex64",
   "gradient": "torch autograd (eig backward with broadening)",
-  "value_s": 14.485659471247345,
-  "value_grad_s": 15.719904308207333,
+  "value_s": 11.944677195046097,
+  "value_grad_s": 13.030275678029284,
   "extrapolated_from_solves": null,
   "value_error": 1.7492663428375632e-05,
-  "gradient_error": 0.0007947219952513469,
+  "gradient_error": 0.0007947219952514163,
   "error_source": "pod, 144 solves",
   "peak_gpu_gib": 2.0240988731384277,
-  "peak_host_gib": 1.6198921203613281,
+  "peak_host_gib": 1.5451774597167969,
   "formulation": "Laurent (E, E^-1), FFT of grid, rectangular truncation",
-  "first_call_s": 15.907038800884038
+  "first_call_s": 12.117860449012369,
+  "machine": "Ryzen 9 9950X, driver 595.112.07, 2026-11-25"
  },
  {
   "code": "torcwa",
@@ -140,16 +147,17 @@
   "device": "RTX 5090",
   "precision": "complex64",
   "gradient": "torch autograd (eig backward with broadening)",
-  "value_s": 14.50653180712834,
-  "value_grad_s": 15.726499733049423,
+  "value_s": 11.9367005469976,
+  "value_grad_s": 13.026441904017702,
   "extrapolated_from_solves": null,
   "value_error": 1.5142718348071238e-05,
-  "gradient_error": 0.0009890959040755132,
+  "gradient_error": 0.0009890959040753057,
   "error_source": "pod, 144 solves",
   "peak_gpu_gib": 2.0240988731384277,
-  "peak_host_gib": 1.4802017211914062,
+  "peak_host_gib": 1.5471000671386719,
   "formulation": "Laurent (E, E^-1), FFT of grid, rectangular truncation",
-  "first_call_s": 14.804016773588955
+  "first_call_s": 12.122526622959413,
+  "machine": "Ryzen 9 9950X, driver 595.112.07, 2026-11-25"
  },
  {
   "code": "meent_torch",
@@ -159,16 +167,17 @@
   "device": "RTX 5090",
   "precision": "complex128",
   "gradient": "torch autograd, custom eig backward",
-  "value_s": 52.070813982747495,
-  "value_grad_s": 65.44947396498173,
+  "value_s": 50.05651533266064,
+  "value_grad_s": 63.39586242567748,
   "extrapolated_from_solves": 16,
   "value_error": 0.0056640976628566375,
   "gradient_error": 0.04025820651431197,
   "error_source": "local CPU, 144 solves (same code, complex128)",
   "peak_gpu_gib": 4.72404670715332,
-  "peak_host_gib": 1.9510307312011719,
+  "peak_host_gib": 2.13031005859375,
   "formulation": "Li inverse rule (fourier_type 0, enhanced_dfs), rectangular truncation, ETM (TMM)",
-  "first_call_s": 6.183673281222582
+  "first_call_s": 6.08485106495209,
+  "machine": "Ryzen 9 9950X, driver 595.112.07, 2026-11-25"
  },
  {
   "code": "meent_torch",
@@ -178,16 +187,17 @@
   "device": "RTX 5090",
   "precision": "complex128",
   "gradient": "torch autograd, custom eig backward",
-  "value_s": 52.20035958616063,
-  "value_grad_s": 65.48126127244905,
+  "value_s": 50.02426052978262,
+  "value_grad_s": 63.39018899621442,
   "extrapolated_from_solves": 16,
   "value_error": 0.013024228201053617,
   "gradient_error": 0.05697630224230474,
   "error_source": "local CPU, 144 solves (same code, complex128)",
   "peak_gpu_gib": 4.72404670715332,
-  "peak_host_gib": 2.0876693725585938,
+  "peak_host_gib": 2.017040252685547,
   "formulation": "Li inverse rule (fourier_type 0, enhanced_dfs), rectangular truncation, ETM (TMM)",
-  "first_call_s": 6.8405837579630315
+  "first_call_s": 5.781557415029965,
+  "machine": "Ryzen 9 9950X, driver 595.112.07, 2026-11-25"
  },
  {
   "code": "meent_jax",
@@ -206,7 +216,8 @@
   "peak_gpu_gib": 0.07061934471130371,
   "peak_host_gib": 5.499965667724609,
   "formulation": "Li inverse rule (fourier_type 0, enhanced_dfs), rectangular truncation, ETM (TMM)",
-  "first_call_s": 16.237798655871302
+  "first_call_s": 16.237798655871302,
+  "machine": "Ryzen 9 7950X, 2026-11-23"
  },
  {
   "code": "meent_jax",
@@ -225,7 +236,8 @@
   "peak_gpu_gib": 0.07061934471130371,
   "peak_host_gib": 5.95294189453125,
   "formulation": "Li inverse rule (fourier_type 0, enhanced_dfs), rectangular truncation, ETM (TMM)",
-  "first_call_s": 16.289733472745866
+  "first_call_s": 16.289733472745866,
+  "machine": "Ryzen 9 7950X, 2026-11-23"
  },
  {
   "code": "grcwa",
@@ -244,7 +256,8 @@
   "peak_gpu_gib": null,
   "peak_host_gib": 7.0924835205078125,
   "formulation": "Laurent (FFT of grid, E^-1 = inv(E)), parallelogramic truncation (Gmethod=1)",
-  "first_call_s": 24.082440124824643
+  "first_call_s": 24.082440124824643,
+  "machine": "Ryzen 9 7950X, 2026-11-23"
  },
  {
   "code": "inkstone",
@@ -263,7 +276,8 @@
   "peak_gpu_gib": null,
   "peak_host_gib": 0.9992256164550781,
   "formulation": "exact Fourier series of pixel rectangles (no grid input), circular truncation (num_g 289)",
-  "first_call_s": 28.212550226133317
+  "first_call_s": 28.212550226133317,
+  "machine": "Ryzen 9 7950X, 2026-11-23"
  },
  {
   "code": "rcwa",
@@ -282,7 +296,8 @@
   "peak_gpu_gib": null,
   "peak_host_gib": 1.7246742248535156,
   "formulation": "Rumpf (Laurent, FFT convolution of grid), rectangular truncation",
-  "first_call_s": 56.88512264331803
+  "first_call_s": 56.88512264331803,
+  "machine": "Ryzen 9 7950X, 2026-11-23"
  },
  {
   "code": "torchrdit",
@@ -292,16 +307,17 @@
   "device": "RTX 5090",
   "precision": "complex64",
   "gradient": "torch autograd",
-  "value_s": 2.6847759630763903,
-  "value_grad_s": 10.942186914966442,
+  "value_s": 2.0354619899298996,
+  "value_grad_s": 7.437148520024493,
   "extrapolated_from_solves": null,
   "value_error": 8.388286363736341e-06,
-  "gradient_error": 1.4316998095261957e-05,
-  "error_source": "gpu_compare/bench_gpu.py 11-23 (per polarisation, not unpolarised)",
-  "peak_gpu_gib": 18.906357765197754,
+  "gradient_error": 1.4316998095257369e-05,
+  "error_source": "benchmark with TorchRDIT, 2026-11-25 (per polarisation, not unpolarised)",
+  "peak_gpu_gib": 18.90588903427124,
   "peak_host_gib": null,
   "formulation": "R-DIT order 15, 1 slice (order of the paper), complex64; directions in chunks of 4; reused, not rerun",
-  "first_call_s": null
+  "first_call_s": null,
+  "machine": "Ryzen 9 9950X, driver 595.112.07, 2026-11-25"
  },
  {
   "code": "torchrdit",
@@ -311,15 +327,16 @@
   "device": "RTX 5090",
   "precision": "complex64",
   "gradient": "torch autograd",
-  "value_s": 5.738626852980815,
-  "value_grad_s": 19.42860780004412,
+  "value_s": 4.275380986044183,
+  "value_grad_s": 13.685172928031534,
   "extrapolated_from_solves": null,
   "value_error": 3.739219152534834e-05,
-  "gradient_error": 4.037135827251611e-05,
-  "error_source": "gpu_compare/bench_gpu.py 11-23 (per polarisation, not unpolarised)",
-  "peak_gpu_gib": 14.00117301940918,
+  "gradient_error": 4.037135827248869e-05,
+  "error_source": "benchmark with TorchRDIT, 2026-11-25 (per polarisation, not unpolarised)",
+  "peak_gpu_gib": 13.996931076049805,
   "peak_host_gib": null,
   "formulation": "R-DIT order 20, 0.25 um slices (set by hand), complex64; directions in chunks of 2; reused, not rerun",
-  "first_call_s": null
+  "first_call_s": null,
+  "machine": "Ryzen 9 9950X, driver 595.112.07, 2026-11-25"
  }
 ]

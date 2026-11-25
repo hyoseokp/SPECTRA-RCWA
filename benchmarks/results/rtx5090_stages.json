@@ -1,18 +1,19 @@
 {
  "device": "NVIDIA GeForce RTX 5090",
- "wall_s": 0.251407956937328,
+ "wall_s": 0.24462030094582587,
  "stages_ms_median": {
-  "fwd: assemble E, E^-1": 2.4015000090003014,
-  "fwd: assemble A = P Q": 3.120026085525751,
-  "fwd: cos, sin": 39.02691905386746,
-  "fwd: thin layer in the reference basis": 28.845673892647028,
-  "fwd: S-matrix doubling": 103.30258309841156,
-  "fwd: boundary": 30.942641897127032,
-  "fwd: detector field, wells": 0.5528051406145096,
-  "bwd: fields on the planes": 8.726419880986214,
-  "bwd: integral over the layer": 18.1056410074234,
-  "fwd: solve for the two polarisations": 4.686210071668029,
-  "bwd: fields on the ends, sweeps": 5.240569123998284,
-  "fwd: objective, autograd of the rest": 6.9903957191854715
- }
+  "fwd: assemble E, E^-1": 2.34793103300035,
+  "fwd: assemble A = P Q": 3.1120829517021775,
+  "fwd: cos, sin": 38.29276200849563,
+  "fwd: thin layer in the reference basis": 28.320239973254502,
+  "fwd: S-matrix doubling": 100.78874696046114,
+  "fwd: boundary": 30.535953934304416,
+  "fwd: detector field, wells": 0.5441399989649653,
+  "bwd: fields on the planes": 8.655282901600003,
+  "bwd: integral over the layer": 18.455490935593843,
+  "fwd: solve for the two polarisations": 4.294079262763262,
+  "bwd: fields on the ends, sweeps": 4.895365214906633,
+  "fwd: objective, autograd of the rest": 5.677861860021949
+ },
+ "version": "1.6.2"
 }
